@@ -325,7 +325,7 @@ function storefrontTemplate(): string {
       <section class="section principles-section" aria-labelledby="principles-title">
         <div class="principles-intro reveal">
           <p class="eyebrow"><span></span> Як ми працюємо</p>
-          <h2 id="principles-title">Без зайвих умов.<br />Без прихованих цифр.</h2>
+          <h2 id="principles-title">Без зайвих умов. <em>Без прихованих цифр.</em></h2>
           <p>Сервіс і коробки побудовані навколо чотирьох простих речей.</p>
         </div>
         <div class="principles-list">
@@ -916,39 +916,97 @@ function renderAccountButton(): void {
 function accountPageContent(): string {
   const account = currentAccount();
   if (account) {
-    const accountOrders = orders().filter((order) => order.accountId === account.id);
+    const accountOrders = orders()
+      .filter((order) => order.accountId === account.id)
+      .slice()
+      .reverse();
+    const activeOrders = accountOrders.filter((order) => order.status !== 'Закрита').length;
+    const orderTotal = accountOrders.reduce((sum, order) => sum + order.total, 0);
+    const initials = account.name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join('')
+      .toLocaleUpperCase('uk-UA');
+    const product = selectedProduct();
+    const personalPrice = unitPrice(product, selectedQuantity, account);
     return `
-      <div class="account-panel">
-        <p class="eyebrow"><span></span> Особистий кабінет</p>
-        <h1 id="account-page-title">${escapeHtml(account.name)}</h1>
-        <p>${escapeHtml(account.phone)}${account.company ? ` · ${escapeHtml(account.company)}` : ''}</p>
-        <div class="account-status${account.partner ? ' is-partner' : ''}">
-          <span>${account.partner ? 'Постійний клієнт' : 'Новий клієнт'}</span>
-          <strong>${account.partner ? `Базова ціна + ${account.fixedMarkup.toFixed(2)} грн` : 'Публічні ціни'}</strong>
+      <div class="account-dashboard">
+        <section class="account-dashboard__hero">
+          <div class="account-identity">
+            <span class="account-avatar">${escapeHtml(initials || 'TP')}</span>
+            <div>
+              <p class="eyebrow eyebrow--light"><span></span> Особистий кабінет</p>
+              <h1 id="account-page-title">${escapeHtml(account.name)}</h1>
+              <p>${escapeHtml(account.phone)}${account.company ? ` · ${escapeHtml(account.company)}` : ''}</p>
+            </div>
+          </div>
+          <div class="account-dashboard__hero-actions">
+            <span class="account-client-badge">${account.partner ? 'Постійний клієнт' : 'Новий клієнт'}</span>
+            <button class="account-logout" type="button" id="logout-button">Вийти</button>
+          </div>
+          <div class="account-price-card${account.partner ? ' is-partner' : ''}">
+            <span>Ваші умови</span>
+            <strong>${account.partner ? `Базова ціна + ${account.fixedMarkup.toFixed(2)} грн` : 'Публічний тариф'}</strong>
+            <p>${account.partner ? 'Фіксована ціна застосовується автоматично в каталозі та калькуляторі.' : 'Менеджер може активувати персональну ціну для постійного клієнта.'}</p>
+          </div>
+        </section>
+
+        <div class="account-kpis">
+          <article><span>Усі заявки</span><strong>${accountOrders.length}</strong><small>у цьому браузері</small></article>
+          <article><span>Активні</span><strong>${activeOrders}</strong><small>потребують уваги</small></article>
+          <article><span>Сума заявок</span><strong>${formatMoney(orderTotal)}</strong><small>демонстраційний підсумок</small></article>
         </div>
-        <div class="account-orders">
-          <div class="account-orders__head"><strong>Мої локальні заявки</strong><span>${accountOrders.length}</span></div>
-          ${
-            accountOrders.length
-              ? accountOrders
-                  .slice()
-                  .reverse()
-                  .map(
-                    (order) => `
-                      <article>
-                        <div><strong>№${order.productNumber} · ${order.quantity.toLocaleString('uk-UA')} шт.</strong><span>${new Date(order.createdAt).toLocaleDateString('uk-UA')}</span></div>
-                        <b>${formatMoney(order.total)}</b>
-                        <small>${order.status}</small>
-                      </article>
-                    `,
-                  )
-                  .join('')
-              : '<p class="muted">Заявок у цьому браузері ще немає.</p>'
-          }
-        </div>
-        <div class="account-actions">
-          ${account.role === 'admin' ? '<a class="button button--primary" href="#admin">Відкрити адмінку</a>' : '<a class="button button--primary" href="#calculator">Новий розрахунок</a>'}
-          <button class="button button--ghost" type="button" id="logout-button">Вийти</button>
+
+        <div class="account-dashboard__grid">
+          <section class="account-orders-panel">
+            <div class="account-panel-heading">
+              <div><p class="eyebrow"><span></span> Історія</p><h2>Мої заявки</h2></div>
+              <a class="text-link" href="#request">Нова заявка <span>→</span></a>
+            </div>
+            <div class="account-order-list">
+              ${
+                accountOrders.length
+                  ? accountOrders
+                      .map(
+                        (order) => `
+                          <article class="account-order">
+                            <div class="account-order__main">
+                              <span>${escapeHtml(order.id)}</span>
+                              <strong>Коробка №${escapeHtml(order.productNumber)}</strong>
+                              <small>${dimensionText(order.dimensions)} · ${order.quantity.toLocaleString('uk-UA')} шт.</small>
+                            </div>
+                            <div class="account-order__price"><strong>${formatMoney(order.total)}</strong><small>${formatMoney(order.unitPrice)} / шт.</small></div>
+                            <div class="account-order__meta"><span>${escapeHtml(order.status)}</span><time datetime="${order.createdAt}">${new Date(order.createdAt).toLocaleDateString('uk-UA')}</time></div>
+                          </article>
+                        `,
+                      )
+                      .join('')
+                  : '<div class="account-empty"><strong>Заявок ще немає.</strong><p>Оберіть розмір, порахуйте тираж і збережіть першу заявку.</p><a class="button button--primary" href="#catalog">До каталогу</a></div>'
+              }
+            </div>
+          </section>
+
+          <aside class="account-sidebar">
+            <article class="account-quick-order">
+              <p class="technical-label">Швидкий розрахунок</p>
+              <div class="account-quick-order__box">${boxDiagram(product, false)}</div>
+              <span>Коробка №${product.number}</span>
+              <h3>${dimensionText(product.dimensions)}</h3>
+              <div><span>${selectedQuantity.toLocaleString('uk-UA')} шт.</span><strong>${formatMoney(personalPrice * selectedQuantity)}</strong></div>
+              <a class="button button--gold button--wide" href="#calculator">Змінити розрахунок</a>
+            </article>
+            <article class="account-profile-card">
+              <div><p class="technical-label">Профіль</p><a href="#account">Дані клієнта</a></div>
+              <dl>
+                <div><dt>Телефон</dt><dd>${escapeHtml(account.phone)}</dd></div>
+                <div><dt>Компанія</dt><dd>${escapeHtml(account.company || 'Не вказано')}</dd></div>
+                <div><dt>Статус</dt><dd>${account.partner ? 'Постійний клієнт' : 'Новий клієнт'}</dd></div>
+              </dl>
+              ${account.role === 'admin' ? '<a class="button button--ghost button--wide" href="#admin">Відкрити адмінку</a>' : ''}
+            </article>
+          </aside>
         </div>
       </div>
     `;
