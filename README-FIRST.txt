@@ -14,11 +14,11 @@ https://yakostyan.github.io/box-lab/
 -----------
 
 Адмін:
-admin@toffipacks.demo
++380000000001
 admin123
 
 Постійний клієнт:
-client@toffipacks.demo
++380671112233
 client123
 
 ВАЖЛИВО

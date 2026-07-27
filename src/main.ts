@@ -24,7 +24,6 @@ type CatalogSort = 'size' | 'price' | 'number';
 interface Account {
   id: string;
   name: string;
-  email: string;
   phone: string;
   company: string;
   password: string;
@@ -39,7 +38,6 @@ interface Order {
   createdAt: string;
   customerName: string;
   phone: string;
-  email: string;
   company: string;
   comment: string;
   productId: string;
@@ -54,9 +52,9 @@ interface Order {
 }
 
 const STORAGE = {
-  accounts: 'toffipacks-demo-accounts-v1',
-  orders: 'toffipacks-demo-orders-v1',
-  session: 'toffipacks-demo-session-v1',
+  accounts: 'toffipacks-demo-accounts-v2',
+  orders: 'toffipacks-demo-orders-v2',
+  session: 'toffipacks-demo-session-v2',
 };
 
 const now = new Date().toISOString();
@@ -64,8 +62,7 @@ const demoAccounts: Account[] = [
   {
     id: 'account-admin',
     name: 'Адміністратор ToffiPacks',
-    email: 'admin@toffipacks.demo',
-    phone: '+380000000000',
+    phone: '+380000000001',
     company: 'ToffiPacks',
     password: 'admin123',
     role: 'admin',
@@ -76,7 +73,6 @@ const demoAccounts: Account[] = [
   {
     id: 'account-partner',
     name: 'Постійний клієнт',
-    email: 'client@toffipacks.demo',
     phone: '+380671112233',
     company: 'Demo Coffee',
     password: 'client123',
@@ -93,7 +89,6 @@ const demoOrders: Order[] = [
     createdAt: now,
     customerName: 'Олена',
     phone: '+380671112233',
-    email: 'client@toffipacks.demo',
     company: 'Demo Coffee',
     comment: 'Потрібно уточнити строк виготовлення.',
     productId: 'box-101',
@@ -134,6 +129,7 @@ let catalogSearch = '';
 let catalogSort: CatalogSort = 'size';
 let fitDimensions: Dimensions | null = null;
 let catalogTimer: number | undefined;
+let activeProductDialogId: string | null = null;
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('Root element #app was not found.');
@@ -158,6 +154,16 @@ function selectedProduct(): Product {
 function clampQuantity(value: number): number {
   if (!Number.isFinite(value)) return 1;
   return Math.min(MAX_QUANTITY, Math.max(1, Math.round(value)));
+}
+
+function normalizePhone(value: string): string {
+  let digits = value.replace(/\D/g, '');
+  if (digits.length === 10 && digits.startsWith('0')) digits = `38${digits}`;
+  return digits.length === 12 && digits.startsWith('380') ? `+${digits}` : value.trim();
+}
+
+function phoneKey(value: string): string {
+  return normalizePhone(value).replace(/\D/g, '');
 }
 
 function escapeHtml(value: string): string {
@@ -253,7 +259,7 @@ function storefrontTemplate(): string {
         <a href="#faq">FAQ</a>
       </nav>
       <div class="header-actions">
-        <button class="button button--ghost button--small" id="account-button" type="button">Кабінет</button>
+        <a class="button button--ghost button--small" id="account-button" href="#account">Кабінет</a>
         <a class="button button--primary button--small" href="#request">Залишити заявку</a>
         <button class="menu-button" id="menu-button" type="button" aria-expanded="false" aria-controls="site-nav">
           <span></span><span></span><span></span><span class="sr-only">Меню</span>
@@ -289,7 +295,7 @@ function storefrontTemplate(): string {
             </div>
             <div class="logo-stage__note">
               <span class="technical-label">TOFFIPACKS / 2026</span>
-              <strong>Крафтова подача.<br />Точний розрахунок.</strong>
+              <strong>Просто обрати.<br />Легко порахувати.</strong>
             </div>
           </div>
         </div>
@@ -313,6 +319,28 @@ function storefrontTemplate(): string {
             <small id="hero-unit">${formatMoney(publicUnitPrice(product, selectedQuantity))} / шт.</small>
           </div>
           <a class="button button--secondary" href="#calculator">Детальний розрахунок</a>
+        </div>
+      </section>
+
+      <section class="section principles-section" aria-labelledby="principles-title">
+        <div class="principles-intro reveal">
+          <p class="eyebrow"><span></span> Як ми працюємо</p>
+          <h2 id="principles-title">Без зайвих умов.<br />Без прихованих цифр.</h2>
+          <p>Сервіс і коробки побудовані навколо чотирьох простих речей.</p>
+        </div>
+        <div class="principles-list">
+          <article class="principle reveal">
+            <span>01</span><div><h3>Зручність</h3><p>Розмір, кількість і ціна — в одному зрозумілому сценарії.</p></div>
+          </article>
+          <article class="principle reveal">
+            <span>02</span><div><h3>Прозорість</h3><p>Відразу показуємо ціну за штуку та весь тираж.</p></div>
+          </article>
+          <article class="principle reveal">
+            <span>03</span><div><h3>Простота</h3><p>Жодних категорій і складних термінів — тільки точні розміри.</p></div>
+          </article>
+          <article class="principle reveal">
+            <span>04</span><div><h3>Якість</h3><p>Один перевірений матеріал і зрозумілий результат.</p></div>
+          </article>
         </div>
       </section>
 
@@ -424,7 +452,11 @@ function storefrontTemplate(): string {
                 <input id="quantity-input" type="number" min="1" max="${MAX_QUANTITY}" value="${selectedQuantity}" />
                 <button type="button" data-quantity-step="100" aria-label="Збільшити кількість на 100">+</button>
               </div>
-              <input class="range" id="quantity-range" type="range" min="1" max="${MAX_QUANTITY}" value="${selectedQuantity}" />
+              <div class="quantity-guide" aria-label="Правила ціни">
+                <span><b>1–999</b><small>прайс + 2 грн</small></span>
+                <i aria-hidden="true"></i>
+                <span><b>від 1 000</b><small>прайс + 1 грн</small></span>
+              </div>
               <div class="quantity-presets" aria-label="Швидкий вибір кількості">
                 ${[100, 500, 1000, 5000, 10000, 50000].map((value) => `<button type="button" data-quantity="${value}">${value.toLocaleString('uk-UA')}</button>`).join('')}
               </div>
@@ -468,7 +500,7 @@ function storefrontTemplate(): string {
             <span class="business-card__number">03</span>
             <h3>Своя ціна</h3>
             <p>Після входу каталог, калькулятор і заявка автоматично працюють за персональною ціною.</p>
-            <button class="text-link text-link--light" id="business-account-button" type="button">Відкрити кабінет <span>→</span></button>
+            <a class="text-link text-link--light" id="business-account-button" href="#account">Відкрити кабінет <span>→</span></a>
           </article>
         </div>
       </section>
@@ -499,11 +531,7 @@ function storefrontTemplate(): string {
             </label>
             <label class="field">
               <span>Телефон *</span>
-              <input class="input" name="phone" type="tel" autocomplete="tel" placeholder="+380..." required />
-            </label>
-            <label class="field">
-              <span>Email</span>
-              <input class="input" name="email" type="email" autocomplete="email" />
+              <input class="input" name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="+380..." pattern="[+]?380[0-9]{9}" required />
             </label>
             <label class="field">
               <span>Компанія</span>
@@ -574,9 +602,20 @@ function storefrontTemplate(): string {
       <div id="admin-content"></div>
     </section>
 
-    <dialog class="account-dialog" id="account-dialog" aria-labelledby="account-dialog-title">
+    <section class="account-page" id="account-page" hidden aria-labelledby="account-page-title">
+      <header class="admin-header account-header">
+        <a class="brand" href="#top">
+          <span class="brand__mark"><img src="./toffipacks-logo.webp" alt="" /></span>
+          <span class="brand__copy"><strong>TOFFIPACKS</strong><small>особистий кабінет</small></span>
+        </a>
+        <a class="button button--ghost button--small" href="#top">Повернутися до коробок</a>
+      </header>
+      <div class="account-page__content" id="account-page-content"></div>
+    </section>
+
+    <dialog class="product-dialog" id="product-dialog" aria-labelledby="product-dialog-title">
       <button class="dialog-close" type="button" data-close-dialog aria-label="Закрити">×</button>
-      <div id="account-dialog-content"></div>
+      <div id="product-dialog-content"></div>
     </dialog>
   `;
 }
@@ -592,7 +631,13 @@ function productCard(product: Product): string {
   const wholesale = publicUnitPrice(product, WHOLESALE_FROM);
   const partner = account?.partner ? unitPrice(product, 1, account) : null;
   return `
-    <article class="product-card${product.id === selectedProductId ? ' is-selected' : ''}">
+    <article
+      class="product-card${product.id === selectedProductId ? ' is-selected' : ''}"
+      data-open-product="${product.id}"
+      tabindex="0"
+      role="button"
+      aria-label="Відкрити коробку №${product.number}, ${dimensionText(product.dimensions)}"
+    >
       <div class="product-card__head">
         <div>
           <span class="product-card__number">№${product.number}</span>
@@ -613,11 +658,99 @@ function productCard(product: Product): string {
             `
         }
       </div>
-      <button class="button button--card" type="button" data-select-product="${product.id}">
-        ${product.id === selectedProductId ? 'Обрано для розрахунку' : 'Обрати й розрахувати'}
+      <button class="button button--card" type="button" data-open-product="${product.id}">
+        ${product.id === selectedProductId ? 'Відкрити обрану коробку' : 'Детальніше й розрахувати'}
       </button>
     </article>
   `;
+}
+
+function productDialogContent(product: Product): string {
+  const account = currentAccount();
+  const calculatedUnit = unitPrice(product, selectedQuantity, account);
+  const total = calculatedUnit * selectedQuantity;
+  return `
+    <div class="product-modal">
+      <div class="product-modal__visual">
+        <div class="product-modal__labels">
+          <span>№${product.number}</span>
+          <small>${escapeHtml(product.sku)}</small>
+        </div>
+        <div class="product-modal__drawing">${boxDiagram(product, true)}</div>
+        <p>Внутрішній розмір · Д × Ш × В</p>
+      </div>
+      <div class="product-modal__content">
+        <p class="eyebrow"><span></span> Коробка з прайса</p>
+        <h2 id="product-dialog-title">${dimensionText(product.dimensions)}</h2>
+        <p class="product-modal__material">${escapeHtml(MATERIAL)}</p>
+
+        <div class="product-modal__rules">
+          <div><span>1–999 шт.</span><strong>${formatMoney(publicUnitPrice(product, 1))} / шт.</strong></div>
+          <div><span>від 1 000 шт.</span><strong>${formatMoney(publicUnitPrice(product, WHOLESALE_FROM))} / шт.</strong></div>
+        </div>
+
+        <div class="quantity-block quantity-block--modal">
+          <div class="quantity-block__label">
+            <label for="modal-quantity-input">Кількість</label>
+            <output id="modal-quantity-output">${selectedQuantity.toLocaleString('uk-UA')} шт.</output>
+          </div>
+          <div class="quantity-control">
+            <button type="button" data-quantity-step="-100" aria-label="Зменшити кількість на 100">−</button>
+            <input id="modal-quantity-input" type="number" min="1" max="${MAX_QUANTITY}" value="${selectedQuantity}" />
+            <button type="button" data-quantity-step="100" aria-label="Збільшити кількість на 100">+</button>
+          </div>
+          <div class="quantity-presets quantity-presets--modal" aria-label="Швидкий вибір кількості">
+            ${[100, 500, 1000, 5000, 10000, 50000].map((value) => `<button type="button" data-quantity="${value}">${value.toLocaleString('uk-UA')}</button>`).join('')}
+          </div>
+        </div>
+
+        <div class="product-modal__total" aria-live="polite">
+          <div><span id="modal-price-tier">${priceTypeLabel(selectedQuantity, account)}</span><strong id="modal-unit-price">${formatMoney(calculatedUnit)} / шт.</strong></div>
+          <div><span>Весь тираж</span><strong id="modal-total">${formatMoney(total)}</strong></div>
+        </div>
+
+        <div class="product-modal__actions">
+          <button class="button button--primary" type="button" data-product-to-request>Перенести в заявку</button>
+          <button class="button button--ghost" type="button" data-product-to-calculator>Відкрити калькулятор</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function updateProductDialog(): void {
+  const dialog = document.querySelector<HTMLDialogElement>('#product-dialog');
+  if (!dialog?.open || !activeProductDialogId) return;
+  const product = products.find((item) => item.id === activeProductDialogId);
+  if (!product) return;
+  const account = currentAccount();
+  const calculatedUnit = unitPrice(product, selectedQuantity, account);
+  const quantityInput = dialog.querySelector<HTMLInputElement>('#modal-quantity-input');
+  if (quantityInput) quantityInput.value = String(selectedQuantity);
+  const quantityOutput = dialog.querySelector<HTMLOutputElement>('#modal-quantity-output');
+  if (quantityOutput) quantityOutput.value = `${selectedQuantity.toLocaleString('uk-UA')} шт.`;
+  const tier = dialog.querySelector<HTMLElement>('#modal-price-tier');
+  if (tier) tier.textContent = priceTypeLabel(selectedQuantity, account);
+  const unit = dialog.querySelector<HTMLElement>('#modal-unit-price');
+  if (unit) unit.textContent = `${formatMoney(calculatedUnit)} / шт.`;
+  const total = dialog.querySelector<HTMLElement>('#modal-total');
+  if (total) total.textContent = formatMoney(calculatedUnit * selectedQuantity);
+  dialog.querySelectorAll<HTMLButtonElement>('[data-quantity]').forEach((button) => {
+    button.classList.toggle('is-active', Number(button.dataset.quantity) === selectedQuantity);
+  });
+}
+
+function openProductDialog(productId: string): void {
+  const product = products.find((item) => item.id === productId);
+  const dialog = document.querySelector<HTMLDialogElement>('#product-dialog');
+  const content = document.querySelector<HTMLDivElement>('#product-dialog-content');
+  if (!product || !dialog || !content) return;
+  activeProductDialogId = product.id;
+  selectProduct(product.id);
+  content.innerHTML = productDialogContent(product);
+  if (typeof dialog.showModal === 'function') dialog.showModal();
+  else dialog.setAttribute('open', '');
+  updateProductDialog();
 }
 
 function filteredProducts(): Product[] {
@@ -680,12 +813,9 @@ function renderCalculator(): void {
   document.querySelectorAll<HTMLSelectElement>('#calculator-product-select, #hero-product-select').forEach((select) => {
     select.value = product.id;
   });
-  document.querySelectorAll<HTMLInputElement>('#quantity-input, #hero-quantity-input').forEach((input) => {
+  document.querySelectorAll<HTMLInputElement>('#quantity-input, #hero-quantity-input, #modal-quantity-input').forEach((input) => {
     input.value = String(selectedQuantity);
   });
-
-  const range = document.querySelector<HTMLInputElement>('#quantity-range');
-  if (range) range.value = String(selectedQuantity);
 
   const output = document.querySelector<HTMLOutputElement>('#quantity-output');
   if (output) output.value = `${selectedQuantity.toLocaleString('uk-UA')} шт.`;
@@ -740,6 +870,10 @@ function renderCalculator(): void {
       <div><span>${tier}</span><b>${formatMoney(total)}</b></div>
     `;
   }
+  document.querySelectorAll<HTMLButtonElement>('[data-quantity]').forEach((button) => {
+    button.classList.toggle('is-active', Number(button.dataset.quantity) === selectedQuantity);
+  });
+  updateProductDialog();
 }
 
 function selectProduct(productId: string, scrollToCalculator = false): void {
@@ -758,7 +892,7 @@ function setQuantity(value: number): void {
 }
 
 function renderAccountButton(): void {
-  const button = document.querySelector<HTMLButtonElement>('#account-button');
+  const button = document.querySelector<HTMLAnchorElement>('#account-button');
   const account = currentAccount();
   if (!button) return;
   button.textContent = account ? account.name.split(' ')[0] : 'Кабінет';
@@ -775,20 +909,19 @@ function renderAccountButton(): void {
     };
     setValue('name', account.name);
     setValue('phone', account.phone);
-    setValue('email', account.email);
     setValue('company', account.company);
   }
 }
 
-function accountDialogContent(): string {
+function accountPageContent(): string {
   const account = currentAccount();
   if (account) {
     const accountOrders = orders().filter((order) => order.accountId === account.id);
     return `
       <div class="account-panel">
         <p class="eyebrow"><span></span> Особистий кабінет</p>
-        <h2 id="account-dialog-title">${escapeHtml(account.name)}</h2>
-        <p>${escapeHtml(account.email)}${account.company ? ` · ${escapeHtml(account.company)}` : ''}</p>
+        <h1 id="account-page-title">${escapeHtml(account.name)}</h1>
+        <p>${escapeHtml(account.phone)}${account.company ? ` · ${escapeHtml(account.company)}` : ''}</p>
         <div class="account-status${account.partner ? ' is-partner' : ''}">
           <span>${account.partner ? 'Постійний клієнт' : 'Новий клієнт'}</span>
           <strong>${account.partner ? `Базова ціна + ${account.fixedMarkup.toFixed(2)} грн` : 'Публічні ціни'}</strong>
@@ -814,7 +947,7 @@ function accountDialogContent(): string {
           }
         </div>
         <div class="account-actions">
-          ${account.role === 'admin' ? '<a class="button button--primary" href="#admin" data-close-dialog>Відкрити адмінку</a>' : '<a class="button button--primary" href="#calculator" data-close-dialog>Новий розрахунок</a>'}
+          ${account.role === 'admin' ? '<a class="button button--primary" href="#admin">Відкрити адмінку</a>' : '<a class="button button--primary" href="#calculator">Новий розрахунок</a>'}
           <button class="button button--ghost" type="button" id="logout-button">Вийти</button>
         </div>
       </div>
@@ -825,12 +958,12 @@ function accountDialogContent(): string {
     <div class="auth-layout">
       <div class="auth-intro">
         <p class="eyebrow"><span></span> Кабінет ToffiPacks</p>
-        <h2 id="account-dialog-title">Увійдіть або створіть акаунт.</h2>
+        <h1 id="account-page-title">Увійдіть за номером телефону.</h1>
         <p>Постійним клієнтам менеджер може активувати фіксовану ціну нижче публічної оптової.</p>
         <div class="demo-access">
           <strong>Демо-доступ</strong>
-          <p>Клієнт: client@toffipacks.demo / client123</p>
-          <p>Адмін: admin@toffipacks.demo / admin123</p>
+          <p>Клієнт: +380671112233 / client123</p>
+          <p>Адмін: +380000000001 / admin123</p>
         </div>
       </div>
       <div class="auth-forms">
@@ -839,7 +972,7 @@ function accountDialogContent(): string {
           <button type="button" role="tab" aria-selected="false" data-auth-tab="register">Реєстрація</button>
         </div>
         <form id="login-form" class="auth-form" data-auth-panel="login" novalidate>
-          <label class="field"><span>Email</span><input class="input" name="email" type="email" required /></label>
+          <label class="field"><span>Телефон</span><input class="input" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+380..." pattern="[+]?380[0-9]{9}" required /></label>
           <label class="field"><span>Пароль</span><input class="input" name="password" type="password" required /></label>
           <div class="form-status" data-auth-status aria-live="polite"></div>
           <button class="button button--primary button--wide" type="submit">Увійти</button>
@@ -847,10 +980,9 @@ function accountDialogContent(): string {
         <form id="register-form" class="auth-form" data-auth-panel="register" hidden novalidate>
           <div class="form-grid">
             <label class="field"><span>Ім’я *</span><input class="input" name="name" required /></label>
-            <label class="field"><span>Телефон *</span><input class="input" name="phone" type="tel" required /></label>
+            <label class="field"><span>Телефон *</span><input class="input" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+380..." pattern="[+]?380[0-9]{9}" required /></label>
           </div>
           <label class="field"><span>Компанія</span><input class="input" name="company" /></label>
-          <label class="field"><span>Email *</span><input class="input" name="email" type="email" required /></label>
           <label class="field"><span>Пароль, від 6 символів *</span><input class="input" name="password" type="password" minlength="6" required /></label>
           <div class="form-status" data-auth-status aria-live="polite"></div>
           <button class="button button--primary button--wide" type="submit">Створити акаунт</button>
@@ -860,13 +992,9 @@ function accountDialogContent(): string {
   `;
 }
 
-function openAccountDialog(): void {
-  const dialog = document.querySelector<HTMLDialogElement>('#account-dialog');
-  const content = document.querySelector<HTMLDivElement>('#account-dialog-content');
-  if (!dialog || !content) return;
-  content.innerHTML = accountDialogContent();
-  if (typeof dialog.showModal === 'function') dialog.showModal();
-  else dialog.setAttribute('open', '');
+function renderAccountPage(): void {
+  const content = document.querySelector<HTMLDivElement>('#account-page-content');
+  if (content) content.innerHTML = accountPageContent();
 }
 
 function setFormStatus(form: HTMLFormElement, message: string, type: 'error' | 'success'): void {
@@ -876,10 +1004,10 @@ function setFormStatus(form: HTMLFormElement, message: string, type: 'error' | '
   status.className = `form-status is-${type}`;
 }
 
-function login(email: string, password: string): Account | null {
-  const normalized = email.trim().toLocaleLowerCase('uk-UA');
+function login(phone: string, password: string): Account | null {
+  const normalized = phoneKey(phone);
   const account = accounts().find(
-    (candidate) => candidate.email.toLocaleLowerCase('uk-UA') === normalized && candidate.password === password,
+    (candidate) => phoneKey(candidate.phone) === normalized && candidate.password === password,
   );
   if (!account) return null;
   localStorage.setItem(STORAGE.session, account.id);
@@ -887,11 +1015,12 @@ function login(email: string, password: string): Account | null {
 }
 
 function handleLogin(form: HTMLFormElement, adminOnly = false): void {
+  form.classList.add('was-validated');
   if (!form.reportValidity()) return;
   const formData = new FormData(form);
-  const account = login(String(formData.get('email') ?? ''), String(formData.get('password') ?? ''));
+  const account = login(String(formData.get('phone') ?? ''), String(formData.get('password') ?? ''));
   if (!account || (adminOnly && account.role !== 'admin')) {
-    setFormStatus(form, adminOnly ? 'Потрібен демо-акаунт адміністратора.' : 'Невірний email або пароль.', 'error');
+    setFormStatus(form, adminOnly ? 'Потрібен демо-акаунт адміністратора.' : 'Невірний телефон або пароль.', 'error');
     return;
   }
   renderAccountButton();
@@ -900,25 +1029,26 @@ function handleLogin(form: HTMLFormElement, adminOnly = false): void {
   if (adminOnly) {
     renderAdmin();
   } else {
-    openAccountDialog();
+    renderAccountPage();
+    window.location.hash = 'account';
   }
 }
 
 function handleRegister(form: HTMLFormElement): void {
+  form.classList.add('was-validated');
   if (!form.reportValidity()) return;
   const formData = new FormData(form);
-  const email = String(formData.get('email') ?? '').trim().toLocaleLowerCase('uk-UA');
+  const phone = normalizePhone(String(formData.get('phone') ?? ''));
   const existingAccounts = accounts();
-  if (existingAccounts.some((account) => account.email.toLocaleLowerCase('uk-UA') === email)) {
-    setFormStatus(form, 'Акаунт із таким email уже існує.', 'error');
+  if (existingAccounts.some((account) => phoneKey(account.phone) === phoneKey(phone))) {
+    setFormStatus(form, 'Акаунт із таким номером уже існує.', 'error');
     return;
   }
   const account: Account = {
     id: `account-${Date.now().toString(36)}`,
     name: String(formData.get('name') ?? '').trim(),
-    phone: String(formData.get('phone') ?? '').trim(),
+    phone,
     company: String(formData.get('company') ?? '').trim(),
-    email,
     password: String(formData.get('password') ?? ''),
     role: 'client',
     partner: false,
@@ -931,11 +1061,13 @@ function handleRegister(form: HTMLFormElement): void {
   renderAccountButton();
   renderCalculator();
   renderCatalog(false);
-  openAccountDialog();
+  renderAccountPage();
+  window.location.hash = 'account';
 }
 
 function submitRequest(form: HTMLFormElement): void {
   const status = document.querySelector<HTMLDivElement>('#request-status');
+  form.classList.add('was-validated');
   if (!form.reportValidity()) {
     if (status) {
       status.className = 'form-status is-error';
@@ -952,8 +1084,7 @@ function submitRequest(form: HTMLFormElement): void {
     id: `TP-${Date.now().toString(36).toUpperCase()}`,
     createdAt: new Date().toISOString(),
     customerName: String(formData.get('name') ?? '').trim(),
-    phone: String(formData.get('phone') ?? '').trim(),
-    email: String(formData.get('email') ?? '').trim(),
+    phone: normalizePhone(String(formData.get('phone') ?? '')),
     company: String(formData.get('company') ?? '').trim(),
     comment: String(formData.get('comment') ?? '').trim(),
     productId: product.id,
@@ -995,7 +1126,7 @@ function renderAdmin(): void {
         <h1 id="admin-title">Вхід для менеджера.</h1>
         <p>У реальному продукті тут потрібні серверна авторизація, права доступу та база даних.</p>
         <form id="admin-login-form" class="auth-form" novalidate>
-          <label class="field"><span>Email</span><input class="input" name="email" type="email" value="admin@toffipacks.demo" required /></label>
+          <label class="field"><span>Телефон</span><input class="input" name="phone" type="tel" value="+380000000001" required /></label>
           <label class="field"><span>Пароль</span><input class="input" name="password" type="password" value="admin123" required /></label>
           <div class="form-status" data-auth-status aria-live="polite"></div>
           <button class="button button--primary button--wide" type="submit">Увійти в демо-адмінку</button>
@@ -1018,7 +1149,7 @@ function renderAdmin(): void {
           <h1 id="admin-title">Заявки та клієнти.</h1>
         </div>
         <div>
-          <span>${escapeHtml(account.email)}</span>
+          <span>${escapeHtml(account.phone)}</span>
           <button class="text-link" id="admin-logout" type="button">Вийти</button>
         </div>
       </div>
@@ -1045,7 +1176,7 @@ function renderAdmin(): void {
                           <select class="select status-select" data-order-status="${escapeHtml(order.id)}">${orderStatusOptions(order.status)}</select>
                         </div>
                         <div class="order-card__grid">
-                          <div><span>Контакт</span><a href="tel:${escapeHtml(order.phone)}">${escapeHtml(order.phone)}</a><small>${escapeHtml(order.email || 'Email не вказано')}</small></div>
+                          <div><span>Контакт</span><a href="tel:${escapeHtml(order.phone)}">${escapeHtml(order.phone)}</a><small>Телефон клієнта</small></div>
                           <div><span>Коробка</span><strong>№${escapeHtml(order.productNumber)}</strong><small>${dimensionText(order.dimensions)}</small></div>
                           <div><span>Тираж</span><strong>${order.quantity.toLocaleString('uk-UA')} шт.</strong><small>${escapeHtml(order.priceType)}</small></div>
                           <div><span>Сума</span><strong>${formatMoney(order.total)}</strong><small>${formatMoney(order.unitPrice)} / шт.</small></div>
@@ -1068,7 +1199,7 @@ function renderAdmin(): void {
             .map(
               (client) => `
                 <div class="client-row">
-                  <div><strong>${escapeHtml(client.name)}</strong><span>${escapeHtml(client.company || client.email)}</span><a href="tel:${escapeHtml(client.phone)}">${escapeHtml(client.phone)}</a></div>
+                  <div><strong>${escapeHtml(client.name)}</strong><span>${escapeHtml(client.company || 'Без компанії')}</span><a href="tel:${escapeHtml(client.phone)}">${escapeHtml(client.phone)}</a></div>
                   <label class="partner-toggle"><input type="checkbox" data-partner-toggle="${client.id}"${client.partner ? ' checked' : ''} /><span>${client.partner ? 'Постійний' : 'Новий'}</span></label>
                   <label class="markup-control"><input class="input" type="number" min="0" max="0.99" step="0.01" value="${client.fixedMarkup.toFixed(2)}" data-partner-markup="${client.id}"${client.partner ? '' : ' disabled'} /><span>грн</span></label>
                 </div>
@@ -1083,19 +1214,26 @@ function renderAdmin(): void {
 
 function syncRoute(): void {
   const adminPage = document.querySelector<HTMLElement>('#admin-page');
+  const accountPage = document.querySelector<HTMLElement>('#account-page');
   const storefront = document.querySelector<HTMLElement>('#main');
   const header = document.querySelector<HTMLElement>('.site-header');
   const footer = document.querySelector<HTMLElement>('.site-footer');
   const strip = document.querySelector<HTMLElement>('.demo-strip');
   const showAdmin = window.location.hash === '#admin';
+  const showAccount = window.location.hash === '#account';
   if (adminPage) adminPage.hidden = !showAdmin;
-  if (storefront) storefront.hidden = showAdmin;
-  if (header) header.hidden = showAdmin;
-  if (footer) footer.hidden = showAdmin;
-  if (strip) strip.hidden = showAdmin;
+  if (accountPage) accountPage.hidden = !showAccount;
+  if (storefront) storefront.hidden = showAdmin || showAccount;
+  if (header) header.hidden = showAdmin || showAccount;
+  if (footer) footer.hidden = showAdmin || showAccount;
+  if (strip) strip.hidden = showAdmin || showAccount;
   document.body.classList.toggle('is-admin', showAdmin);
+  document.body.classList.toggle('is-account', showAccount);
   if (showAdmin) {
     renderAdmin();
+    window.scrollTo({ top: 0 });
+  } else if (showAccount) {
+    renderAccountPage();
     window.scrollTo({ top: 0 });
   }
 }
@@ -1138,6 +1276,7 @@ document.querySelectorAll<HTMLAnchorElement>('.site-nav a').forEach((link) => {
 document.querySelector<HTMLFormElement>('#fit-form')?.addEventListener('submit', (event) => {
   event.preventDefault();
   const form = event.currentTarget as HTMLFormElement;
+  form.classList.add('was-validated');
   const message = document.querySelector<HTMLParagraphElement>('#fit-message');
   if (!form.reportValidity()) {
     if (message) {
@@ -1196,10 +1335,6 @@ document.querySelector<HTMLInputElement>('#hero-quantity-input')?.addEventListen
   setQuantity(Number((event.currentTarget as HTMLInputElement).value));
 });
 
-document.querySelector<HTMLInputElement>('#quantity-range')?.addEventListener('input', (event) => {
-  setQuantity(Number((event.currentTarget as HTMLInputElement).value));
-});
-
 document.querySelector<HTMLFormElement>('#request-form')?.addEventListener('submit', (event) => {
   event.preventDefault();
   submitRequest(event.currentTarget as HTMLFormElement);
@@ -1207,9 +1342,9 @@ document.querySelector<HTMLFormElement>('#request-form')?.addEventListener('subm
 
 document.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
-  const productButton = target.closest<HTMLButtonElement>('[data-select-product]');
-  if (productButton?.dataset.selectProduct) {
-    selectProduct(productButton.dataset.selectProduct, true);
+  const productTrigger = target.closest<HTMLElement>('[data-open-product]');
+  if (productTrigger?.dataset.openProduct) {
+    openProductDialog(productTrigger.dataset.openProduct);
     return;
   }
 
@@ -1225,14 +1360,26 @@ document.addEventListener('click', (event) => {
     return;
   }
 
-  if (target.closest('#account-button') || target.closest('#business-account-button')) {
-    openAccountDialog();
+  if (target.closest('[data-product-to-request]')) {
+    document.querySelector<HTMLDialogElement>('#product-dialog')?.close();
+    activeProductDialogId = null;
+    window.location.hash = 'request';
+    document.querySelector('#request')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     return;
   }
 
-  if (target.closest('[data-close-dialog]')) {
-    const dialog = target.closest<HTMLDialogElement>('dialog') ?? document.querySelector<HTMLDialogElement>('#account-dialog');
-    dialog?.close();
+  if (target.closest('[data-product-to-calculator]')) {
+    document.querySelector<HTMLDialogElement>('#product-dialog')?.close();
+    activeProductDialogId = null;
+    window.location.hash = 'calculator';
+    document.querySelector('#calculator')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
+  const closeButton = target.closest<HTMLElement>('[data-close-dialog]');
+  if (closeButton) {
+    closeButton.closest<HTMLDialogElement>('dialog')?.close();
+    activeProductDialogId = null;
     return;
   }
 
@@ -1255,7 +1402,7 @@ document.addEventListener('click', (event) => {
     renderAccountButton();
     renderCalculator();
     renderCatalog(false);
-    openAccountDialog();
+    renderAccountPage();
     return;
   }
 
@@ -1266,6 +1413,21 @@ document.addEventListener('click', (event) => {
     renderCatalog(false);
     renderAdmin();
   }
+});
+
+document.addEventListener('input', (event) => {
+  const target = event.target;
+  if (target instanceof HTMLInputElement && target.id === 'modal-quantity-input') {
+    setQuantity(Number(target.value));
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  const target = event.target;
+  if (!(target instanceof HTMLElement) || !target.matches('.product-card')) return;
+  event.preventDefault();
+  if (target.dataset.openProduct) openProductDialog(target.dataset.openProduct);
 });
 
 document.addEventListener('submit', (event) => {
@@ -1320,8 +1482,11 @@ document.addEventListener('change', (event) => {
   }
 });
 
-document.querySelector<HTMLDialogElement>('#account-dialog')?.addEventListener('click', (event) => {
-  if (event.target === event.currentTarget) (event.currentTarget as HTMLDialogElement).close();
+document.querySelector<HTMLDialogElement>('#product-dialog')?.addEventListener('click', (event) => {
+  if (event.target === event.currentTarget) {
+    (event.currentTarget as HTMLDialogElement).close();
+    activeProductDialogId = null;
+  }
 });
 
 window.addEventListener('hashchange', syncRoute);

@@ -19,9 +19,11 @@ new Function(scriptMatch[1]);
 
 for (const marker of [
   'TOFFIPACKS',
-  'toffipacks-demo-orders-v1',
-  'data-select-product',
+  'toffipacks-demo-orders-v2',
+  'data-open-product',
   'calculator-card',
+  'account-page',
+  'product-dialog',
   'admin-page',
   'Демо-прототип',
 ]) {
