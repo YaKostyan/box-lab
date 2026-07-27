@@ -1,1497 +1,1334 @@
 import './styles.css';
-import './redesign.css';
 import {
-  demoDisclaimer,
+  DEFAULT_PARTNER_MARKUP,
   faqItems,
+  fitsWithRotation,
   formatMoney,
+  MATERIAL,
+  MAX_QUANTITY,
+  productVolume,
   products,
-  purposes,
+  publicUnitPrice,
+  RETAIL_MARKUP,
   unitPrice,
-  type BoxType,
+  WHOLESALE_FROM,
+  WHOLESALE_MARKUP,
   type Dimensions,
-  type Material,
   type Product,
-  type Purpose,
 } from './data';
 
-interface CatalogState {
-  search: string;
-  purpose: Purpose | '';
-  type: BoxType | '';
-  material: Material | '';
-  inStock: boolean;
-  brandable: boolean;
-  postal: boolean;
-  dimensions: Dimensions | null;
-  sort: 'recommended' | 'price-asc' | 'price-desc' | 'size';
-  loading: boolean;
+type AccountRole = 'client' | 'admin';
+type OrderStatus = 'Нова' | 'У роботі' | 'Уточнення' | 'Підтверджена' | 'Закрита';
+type CatalogSort = 'size' | 'price' | 'number';
+
+interface Account {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  company: string;
+  password: string;
+  role: AccountRole;
+  partner: boolean;
+  fixedMarkup: number;
+  createdAt: string;
 }
 
-interface WizardState {
-  step: number;
-  purpose: Purpose | '';
+interface Order {
+  id: string;
+  createdAt: string;
+  customerName: string;
+  phone: string;
+  email: string;
+  company: string;
+  comment: string;
+  productId: string;
+  productNumber: string;
   dimensions: Dimensions;
-  weight: number;
-  structure: BoxType | '';
-  material: Material | '';
-  color: string;
-  branding: 'none' | 'sticker' | 'print' | '';
   quantity: number;
-  urgency: string;
+  unitPrice: number;
+  total: number;
+  priceType: string;
+  accountId?: string;
+  status: OrderStatus;
 }
+
+const STORAGE = {
+  accounts: 'toffipacks-demo-accounts-v1',
+  orders: 'toffipacks-demo-orders-v1',
+  session: 'toffipacks-demo-session-v1',
+};
+
+const now = new Date().toISOString();
+const demoAccounts: Account[] = [
+  {
+    id: 'account-admin',
+    name: 'Адміністратор ToffiPacks',
+    email: 'admin@toffipacks.demo',
+    phone: '+380000000000',
+    company: 'ToffiPacks',
+    password: 'admin123',
+    role: 'admin',
+    partner: false,
+    fixedMarkup: DEFAULT_PARTNER_MARKUP,
+    createdAt: now,
+  },
+  {
+    id: 'account-partner',
+    name: 'Постійний клієнт',
+    email: 'client@toffipacks.demo',
+    phone: '+380671112233',
+    company: 'Demo Coffee',
+    password: 'client123',
+    role: 'client',
+    partner: true,
+    fixedMarkup: DEFAULT_PARTNER_MARKUP,
+    createdAt: now,
+  },
+];
+
+const demoOrders: Order[] = [
+  {
+    id: 'TP-DEMO-001',
+    createdAt: now,
+    customerName: 'Олена',
+    phone: '+380671112233',
+    email: 'client@toffipacks.demo',
+    company: 'Demo Coffee',
+    comment: 'Потрібно уточнити строк виготовлення.',
+    productId: 'box-101',
+    productNumber: '101',
+    dimensions: { length: 178, width: 115, height: 48 },
+    quantity: 1200,
+    unitPrice: 4.5,
+    total: 5400,
+    priceType: 'Фіксована ціна клієнта',
+    accountId: 'account-partner',
+    status: 'Нова',
+  },
+];
+
+function readStorage<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStorage<T>(key: string, value: T): void {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function initializeDemoStorage(): void {
+  if (!localStorage.getItem(STORAGE.accounts)) writeStorage(STORAGE.accounts, demoAccounts);
+  if (!localStorage.getItem(STORAGE.orders)) writeStorage(STORAGE.orders, demoOrders);
+}
+
+initializeDemoStorage();
+
+let selectedProductId = 'box-101';
+let selectedQuantity = 500;
+let catalogSearch = '';
+let catalogSort: CatalogSort = 'size';
+let fitDimensions: Dimensions | null = null;
+let catalogTimer: number | undefined;
 
 const app = document.querySelector<HTMLDivElement>('#app');
+if (!app) throw new Error('Root element #app was not found.');
 
-if (!app) {
-  throw new Error('Root element #app was not found.');
+function accounts(): Account[] {
+  return readStorage<Account[]>(STORAGE.accounts, demoAccounts);
 }
 
-const catalogState: CatalogState = {
-  search: '',
-  purpose: '',
-  type: '',
-  material: '',
-  inStock: false,
-  brandable: false,
-  postal: false,
-  dimensions: null,
-  sort: 'recommended',
-  loading: true,
-};
-
-const wizardState: WizardState = {
-  step: 0,
-  purpose: '',
-  dimensions: { length: 180, width: 120, height: 60 },
-  weight: 0.4,
-  structure: '',
-  material: '',
-  color: 'Крафт',
-  branding: '',
-  quantity: 50,
-  urgency: 'Стандартний',
-};
-
-let catalogTimer = 0;
-let productView: 'assembled' | 'net' = 'assembled';
-let productQuantity = 10;
-let productHasLogo = false;
-let brandingMode: 'plain' | 'logo' = 'plain';
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
+function orders(): Order[] {
+  return readStorage<Order[]>(STORAGE.orders, demoOrders);
 }
 
-function dimensionsText(dimensions: Dimensions): string {
+function currentAccount(): Account | null {
+  const accountId = localStorage.getItem(STORAGE.session);
+  return accounts().find((account) => account.id === accountId) ?? null;
+}
+
+function selectedProduct(): Product {
+  return products.find((product) => product.id === selectedProductId) ?? products[0];
+}
+
+function clampQuantity(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(MAX_QUANTITY, Math.max(1, Math.round(value)));
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function dimensionText(dimensions: Dimensions): string {
   return `${dimensions.length} × ${dimensions.width} × ${dimensions.height} мм`;
 }
 
-function createBoxDiagram(
-  dimensions: Dimensions,
-  options: { logo?: boolean; objectLabel?: string; id?: string } = {},
-): string {
-  const longest = Math.max(dimensions.length, dimensions.width, dimensions.height, 1);
-  const length = clamp(150 + (dimensions.length / longest) * 100, 165, 270);
-  const depth = clamp(48 + (dimensions.width / longest) * 72, 54, 120);
-  const height = clamp(58 + (dimensions.height / longest) * 70, 62, 128);
-  const x = 82;
-  const y = 120;
-  const ox = depth * 0.62;
-  const oy = depth * 0.38;
-  const logoClass = options.logo ? ' has-logo' : '';
-  const label = options.objectLabel ?? 'предмет';
-
-  return `
-    <svg class="box-diagram${logoClass}" data-diagram-id="${options.id ?? ''}" viewBox="0 0 540 350" role="img" aria-label="Схема коробки з внутрішніми розмірами ${dimensionsText(dimensions)}">
-      <title>Коробка ${dimensionsText(dimensions)}</title>
-      <desc>Технічна схема коробки з підписами довжини, ширини та висоти.</desc>
-      <polygon class="box-face box-top" points="${x},${y} ${x + ox},${y - oy} ${x + length + ox},${y - oy} ${x + length},${y}" />
-      <polygon class="box-face" points="${x + length},${y} ${x + length + ox},${y - oy} ${x + length + ox},${y + height - oy} ${x + length},${y + height}" />
-      <rect class="box-face" x="${x}" y="${y}" width="${length}" height="${height}" />
-      <rect class="object" x="${x + length * 0.18}" y="${y + height * 0.28}" width="${length * 0.64}" height="${height * 0.5}" rx="2" />
-      <text x="${x + length / 2}" y="${y + height * 0.59}" text-anchor="middle">${label}</text>
-      <g class="logo-print" transform="translate(${x + length / 2 - 28} ${y + height * 0.58 - 12})">
-        <rect width="56" height="24" fill="#1c1e1b" />
-        <text x="28" y="16" fill="#f3f3ed" text-anchor="middle" style="fill:#f3f3ed;font-size:10px">ВАШ ЛОГО</text>
-      </g>
-      <path class="measure" d="M ${x} ${y + height + 36} V ${y + height + 24} M ${x} ${y + height + 30} H ${x + length} M ${x + length} ${y + height + 36} V ${y + height + 24}" />
-      <g class="dimension-badge" transform="translate(${x + length / 2} ${y + height + 55})">
-        <rect x="-34" y="-12" width="68" height="24" rx="12" />
-        <text y="4" text-anchor="middle">${dimensions.length} мм</text>
-      </g>
-      <path class="measure" d="M ${x - 26} ${y} H ${x - 14} M ${x - 20} ${y} V ${y + height} M ${x - 26} ${y + height} H ${x - 14}" />
-      <g class="dimension-badge" transform="translate(${x - 54} ${y + height / 2})">
-        <rect x="-26" y="-12" width="52" height="24" rx="12" />
-        <text y="4" text-anchor="middle">${dimensions.height} мм</text>
-      </g>
-      <path class="measure measure--width" d="M ${x + length + ox} ${y - oy - 4} V ${y - oy - 28}" />
-      <g class="dimension-badge dimension-badge--width" transform="translate(${x + length + ox} ${y - oy - 42})">
-        <rect x="-34" y="-12" width="68" height="24" rx="12" />
-        <text y="4" text-anchor="middle">${dimensions.width} мм</text>
-      </g>
-    </svg>`;
+function priceTypeLabel(quantity: number, account: Account | null): string {
+  if (account?.partner) return 'Фіксована ціна клієнта';
+  return quantity >= WHOLESALE_FROM ? 'Оптова ціна' : 'Роздрібна ціна';
 }
 
-function createProductVisual(product: Product, view: 'assembled' | 'net' = 'assembled', logo = false): string {
-  const tone = `tone-${product.colorTone}`;
-  if (view === 'net') {
-    return `
-      <svg class="product-svg" viewBox="0 0 420 300" role="img" aria-label="Розгортка коробки ${product.shortName}">
-        <title>Технічна розгортка ${product.shortName}</title>
-        <g transform="translate(42 35)">
-          <rect class="face ${tone}" x="94" y="57" width="145" height="96" />
-          <rect class="face ${tone}" x="94" y="8" width="145" height="49" />
-          <rect class="face ${tone}" x="94" y="153" width="145" height="49" />
-          <rect class="face ${tone}" x="34" y="57" width="60" height="96" />
-          <rect class="face ${tone}" x="239" y="57" width="60" height="96" />
-          <path class="measure" stroke-dasharray="5 4" d="M94 57H239M94 153H239M94 57V153M239 57V153" />
-          <text x="166" y="110" text-anchor="middle">${product.sku}</text>
-          ${logo ? '<rect x="141" y="119" width="52" height="18" fill="#1c1e1b"/><text x="167" y="132" text-anchor="middle" style="fill:#f3f3ed;font-size:8px">ВАШ ЛОГО</text>' : ''}
-        </g>
-      </svg>`;
-  }
+function boxDiagram(product: Product, compact = false): string {
+  const { length, width, height } = product.dimensions;
+  const lengthScale = 170 + Math.min(100, length / 3);
+  const heightScale = 58 + Math.min(54, height / 2.5);
+  const depthScale = 50 + Math.min(44, width / 4);
+  const x = 72;
+  const y = compact ? 70 : 82;
+  const topY = y - depthScale * 0.55;
+  const rightX = x + lengthScale;
+  const farX = rightX + depthScale;
+  const baseline = y + heightScale;
 
   return `
-    <svg class="product-svg" viewBox="0 0 420 300" role="img" aria-label="Зібрана коробка ${product.shortName}">
-      <title>Коробка ${product.shortName}</title>
-      <g transform="translate(38 30)">
-        <polygon class="face fold-flap ${tone}" points="58,82 132,39 329,39 255,82" />
-        <polygon class="face ${tone}" points="255,82 329,39 329,155 255,201" />
-        <polygon class="face ${tone}" points="58,82 255,82 255,201 58,201" />
-        ${logo ? '<rect x="128" y="126" width="62" height="25" fill="#1c1e1b"/><text x="159" y="142" text-anchor="middle" style="fill:#f3f3ed;font-size:8px">ВАШ ЛОГО</text>' : `<text x="157" y="146" text-anchor="middle">${product.sku}</text>`}
-        <path class="measure" d="M58 224V211M58 218H255M255 224V211" />
-        <text x="156" y="244" text-anchor="middle">${product.inner.length} мм</text>
+    <svg class="box-visual${compact ? ' box-visual--compact' : ''}" viewBox="0 0 470 270" role="img"
+      aria-label="Схема коробки ${escapeHtml(product.number)}, ${dimensionText(product.dimensions)}">
+      <g class="box-visual__shape">
+        <polygon class="box-visual__top" points="${x},${y} ${x + depthScale},${topY} ${farX},${topY} ${rightX},${y}" />
+        <polygon class="box-visual__side" points="${rightX},${y} ${farX},${topY} ${farX},${topY + heightScale} ${rightX},${baseline}" />
+        <rect class="box-visual__front" x="${x}" y="${y}" width="${lengthScale}" height="${heightScale}" />
+        <rect class="box-visual__mark" x="${x + lengthScale * 0.35}" y="${y + heightScale * 0.32}"
+          width="${lengthScale * 0.3}" height="${Math.max(24, heightScale * 0.34)}" rx="5" />
+        <text class="box-visual__number" x="${x + lengthScale / 2}" y="${y + heightScale * 0.56}">№${product.number}</text>
       </g>
-    </svg>`;
+      <g class="dimension-line dimension-line--length">
+        <line x1="${x}" y1="${baseline + 28}" x2="${rightX}" y2="${baseline + 28}" />
+        <line x1="${x}" y1="${baseline + 20}" x2="${x}" y2="${baseline + 36}" />
+        <line x1="${rightX}" y1="${baseline + 20}" x2="${rightX}" y2="${baseline + 36}" />
+        <rect x="${x + lengthScale / 2 - 38}" y="${baseline + 12}" width="76" height="32" rx="16" />
+        <text x="${x + lengthScale / 2}" y="${baseline + 33}">${length} мм</text>
+      </g>
+      <g class="dimension-line dimension-line--height">
+        <line x1="${x - 26}" y1="${y}" x2="${x - 26}" y2="${baseline}" />
+        <line x1="${x - 34}" y1="${y}" x2="${x - 18}" y2="${y}" />
+        <line x1="${x - 34}" y1="${baseline}" x2="${x - 18}" y2="${baseline}" />
+        <rect x="2" y="${y + heightScale / 2 - 16}" width="66" height="32" rx="16" />
+        <text x="35" y="${y + heightScale / 2 + 5}">${height} мм</text>
+      </g>
+      <g class="dimension-line dimension-line--width">
+        <line x1="${rightX + 8}" y1="${y - 8}" x2="${farX + 8}" y2="${topY - 8}" />
+        <rect x="${farX - 54}" y="${Math.max(4, topY - 48)}" width="76" height="32" rx="16" />
+        <text x="${farX - 16}" y="${Math.max(25, topY - 27)}">${width} мм</text>
+      </g>
+    </svg>
+  `;
 }
 
-function renderHeader(): string {
+function productOptions(): string {
+  return products
+    .map(
+      (product) =>
+        `<option value="${product.id}"${product.id === selectedProductId ? ' selected' : ''}>№${product.number} · ${dimensionText(product.dimensions)}</option>`,
+    )
+    .join('');
+}
+
+function storefrontTemplate(): string {
+  const product = selectedProduct();
   return `
-    <div class="demo-strip" role="note">Демо-прототип · ціни, наявність і строки не є офертою</div>
-    <header class="site-header">
-      <div class="shell header-row">
-        <a class="brand" href="#top" aria-label="Box Lab, на головну">
-          <span class="brand-mark" aria-hidden="true">□</span>
-          <span>Box Lab</span>
-        </a>
-        <nav class="main-nav" id="main-nav" aria-label="Головна навігація">
-          <a href="#catalog">Каталог</a>
-          <a href="#constructor">Конструктор</a>
-          <a href="#branding">Брендування</a>
-          <a href="#business">Для бізнесу</a>
-          <a href="#delivery">Доставка</a>
-          <a href="#faq">FAQ</a>
-          <a class="button button--accent header-cta" href="#request">Запросити розрахунок</a>
-        </nav>
-        <button class="icon-button menu-toggle" type="button" aria-expanded="false" aria-controls="main-nav" aria-label="Відкрити меню">
-          <span aria-hidden="true">☰</span>
+    <div class="demo-strip" role="note">
+      <span>Демо-прототип</span>
+      <p>Акаунти та заявки зберігаються лише у цьому браузері. Реальної відправки немає.</p>
+    </div>
+
+    <header class="site-header" id="top">
+      <a class="brand" href="#top" aria-label="ToffiPacks — на головну">
+        <span class="brand__mark"><img src="./toffipacks-logo.webp" alt="" /></span>
+        <span class="brand__copy"><strong>TOFFIPACKS</strong><small>самозбірні коробки</small></span>
+      </a>
+      <nav class="site-nav" id="site-nav" aria-label="Основна навігація">
+        <a href="#catalog">Розміри</a>
+        <a href="#calculator">Калькулятор</a>
+        <a href="#business">Для бізнесу</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <div class="header-actions">
+        <button class="button button--ghost button--small" id="account-button" type="button">Кабінет</button>
+        <a class="button button--primary button--small" href="#request">Залишити заявку</a>
+        <button class="menu-button" id="menu-button" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span></span><span></span><span></span><span class="sr-only">Меню</span>
         </button>
       </div>
-    </header>`;
-}
+    </header>
 
-function renderHero(): string {
-  const dimensions = { length: 180, width: 120, height: 60 };
-  return `
     <main id="main">
-      <section class="hero" id="top">
-        <div class="shell">
-          <div class="hero-intro">
-            <div>
-              <p class="eyebrow">Лабораторія пакування / 01</p>
-              <h1>Коробка точно під ваш продукт.</h1>
+      <section class="hero section">
+        <div class="hero__content reveal">
+          <p class="eyebrow"><span></span> Розмір → тираж → ціна</p>
+          <h1>Коробки за розміром.<br /><em>Ціна — одразу.</em></h1>
+          <p class="hero__lead">
+            Без категорій «для взуття» чи «для техніки». Оберіть внутрішній розмір,
+            вкажіть кількість — калькулятор порахує весь тираж до 50&nbsp;000 штук.
+          </p>
+          <div class="hero__actions">
+            <a class="button button--primary" href="#calculator">Розрахувати вартість</a>
+            <a class="text-link" href="#catalog">Дивитися всі розміри <span aria-hidden="true">→</span></a>
+          </div>
+          <dl class="hero__facts">
+            <div><dt>12</dt><dd>розмірів у прайсі</dd></div>
+            <div><dt>1–50 000</dt><dd>діапазон калькулятора</dd></div>
+            <div><dt>${escapeHtml(MATERIAL)}</dt><dd>один матеріал</dd></div>
+          </dl>
+        </div>
+
+        <div class="hero__visual reveal">
+          <div class="logo-stage">
+            <div class="logo-stage__orbit" aria-hidden="true"></div>
+            <div class="logo-stage__image">
+              <img src="./toffipacks-logo.webp" alt="Логотип ToffiPacks із деревом у відбитку лапи" />
             </div>
-            <div class="hero-copy">
-              <p>Введіть розміри предмета — сервіс покаже готові варіанти й чесно порахує демо-ціну.</p>
-              <div class="hero-actions">
-                <a class="button button--accent" href="#fit-form">Підібрати за розміром <span aria-hidden="true">↓</span></a>
-                <a class="button" href="#constructor">Створити свою</a>
+            <div class="logo-stage__note">
+              <span class="technical-label">TOFFIPACKS / 2026</span>
+              <strong>Крафтова подача.<br />Точний розрахунок.</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero-calculator reveal" aria-label="Швидкий розрахунок">
+          <div class="hero-calculator__head">
+            <span class="technical-label">Швидкий розрахунок</span>
+            <span class="price-rule">1–999: +${RETAIL_MARKUP} грн · ${WHOLESALE_FROM}+: +${WHOLESALE_MARKUP} грн</span>
+          </div>
+          <label class="field">
+            <span>Коробка</span>
+            <select class="select" id="hero-product-select">${productOptions()}</select>
+          </label>
+          <label class="field">
+            <span>Кількість</span>
+            <input class="input" id="hero-quantity-input" type="number" min="1" max="${MAX_QUANTITY}" value="${selectedQuantity}" />
+          </label>
+          <div class="hero-calculator__result">
+            <span id="hero-price-label">Роздрібна ціна</span>
+            <strong id="hero-total">${formatMoney(publicUnitPrice(product, selectedQuantity) * selectedQuantity)}</strong>
+            <small id="hero-unit">${formatMoney(publicUnitPrice(product, selectedQuantity))} / шт.</small>
+          </div>
+          <a class="button button--secondary" href="#calculator">Детальний розрахунок</a>
+        </div>
+      </section>
+
+      <section class="section fit-section" id="fit">
+        <div class="section-heading reveal">
+          <div>
+            <p class="eyebrow"><span></span> Підбір за габаритами</p>
+            <h2>Введіть розмір предмета.</h2>
+          </div>
+          <p>Можна повертати предмет усередині коробки. Ми покажемо найкомпактніші варіанти, у які він входить.</p>
+        </div>
+        <div class="fit-panel reveal">
+          <form class="fit-form" id="fit-form" novalidate>
+            <div class="dimension-inputs">
+              <label class="field">
+                <span>Довжина, мм</span>
+                <input class="input" name="length" type="number" min="1" max="2000" value="170" required />
+              </label>
+              <span class="dimension-sign" aria-hidden="true">×</span>
+              <label class="field">
+                <span>Ширина, мм</span>
+                <input class="input" name="width" type="number" min="1" max="2000" value="110" required />
+              </label>
+              <span class="dimension-sign" aria-hidden="true">×</span>
+              <label class="field">
+                <span>Висота, мм</span>
+                <input class="input" name="height" type="number" min="1" max="2000" value="45" required />
+              </label>
+            </div>
+            <button class="button button--primary" type="submit">Знайти коробку</button>
+            <p class="form-message" id="fit-message" aria-live="polite"></p>
+          </form>
+          <div class="fit-panel__drawing">
+            <div class="fit-object">
+              <span>ваш предмет</span>
+              <i class="fit-object__length">Д</i>
+              <i class="fit-object__width">Ш</i>
+              <i class="fit-object__height">В</i>
+            </div>
+            <p>Порівнюємо всі три сторони, а не назву товару.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section catalog-section" id="catalog">
+        <div class="section-heading reveal">
+          <div>
+            <p class="eyebrow"><span></span> 12 позицій із прайса</p>
+            <h2>Оберіть розмір,<br />не призначення.</h2>
+          </div>
+          <p>Усі картки побудовані за наданим прайсом ToffiPacks. Базові дані не вигадані.</p>
+        </div>
+        <div class="catalog-toolbar reveal">
+          <label class="search-field">
+            <span class="sr-only">Пошук</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m16 16 4 4"></path></svg>
+            <input id="catalog-search" type="search" placeholder="Номер, артикул або розмір" autocomplete="off" />
+          </label>
+          <label class="sort-field">
+            <span>Сортувати</span>
+            <select class="select" id="catalog-sort">
+              <option value="size">Від компактних</option>
+              <option value="price">За ціною</option>
+              <option value="number">За номером</option>
+            </select>
+          </label>
+          <button class="button button--ghost button--small" id="reset-catalog" type="button">Скинути підбір</button>
+        </div>
+        <div class="catalog-meta">
+          <p id="catalog-count" aria-live="polite"></p>
+          <p class="source-note">Джерело: Price_List_ToffiPacks-v3.xlsx</p>
+        </div>
+        <div class="product-grid" id="product-grid" aria-live="polite"></div>
+      </section>
+
+      <section class="section calculator-section" id="calculator">
+        <div class="calculator-shell reveal">
+          <div class="calculator-copy">
+            <p class="eyebrow eyebrow--light"><span></span> Калькулятор тиражу</p>
+            <h2>Від однієї коробки<br />до 50 тисяч.</h2>
+            <p>
+              Ціна змінюється рівно один раз — на 1000 штук. Для підтверджених
+              постійних клієнтів застосовується фіксована персональна ціна.
+            </p>
+            <div class="price-logic">
+              <div><span>1–999 шт.</span><strong>прайс + 2 грн</strong></div>
+              <div><span>1 000–50 000 шт.</span><strong>прайс + 1 грн</strong></div>
+              <div><span>Постійний клієнт</span><strong>фіксована ціна</strong></div>
+            </div>
+          </div>
+
+          <div class="calculator-card">
+            <div class="calculator-card__top">
+              <span class="technical-label">Розрахунок / live</span>
+              <span class="account-price-badge" id="account-price-badge">Публічна ціна</span>
+            </div>
+            <label class="field">
+              <span>Розмір коробки</span>
+              <select class="select select--large" id="calculator-product-select">${productOptions()}</select>
+            </label>
+            <div class="calculator-preview" id="calculator-preview">${boxDiagram(product, true)}</div>
+            <div class="quantity-block">
+              <div class="quantity-block__label">
+                <label for="quantity-input">Кількість</label>
+                <output id="quantity-output">${selectedQuantity.toLocaleString('uk-UA')} шт.</output>
+              </div>
+              <div class="quantity-control">
+                <button type="button" data-quantity-step="-100" aria-label="Зменшити кількість на 100">−</button>
+                <input id="quantity-input" type="number" min="1" max="${MAX_QUANTITY}" value="${selectedQuantity}" />
+                <button type="button" data-quantity-step="100" aria-label="Збільшити кількість на 100">+</button>
+              </div>
+              <input class="range" id="quantity-range" type="range" min="1" max="${MAX_QUANTITY}" value="${selectedQuantity}" />
+              <div class="quantity-presets" aria-label="Швидкий вибір кількості">
+                ${[100, 500, 1000, 5000, 10000, 50000].map((value) => `<button type="button" data-quantity="${value}">${value.toLocaleString('uk-UA')}</button>`).join('')}
               </div>
             </div>
-          </div>
-          <div class="fit-lab">
-            <form class="fit-controls" id="fit-form">
-              <span class="technical-label">Fit check / внутрішній розмір</span>
-              <h2>Підберімо розмір</h2>
-              <p class="microcopy">Розміри предмета, а не старої коробки. Для підбору можна повертати предмет усередині.</p>
-              <div class="field">
-                <label for="hero-purpose">Предмет</label>
-                <select class="select" id="hero-purpose" name="purpose">
-                  ${purposes.map((item) => `<option value="${item.name}">${item.name} — ${item.note}</option>`).join('')}
-                </select>
+            <div class="calculation-result" aria-live="polite">
+              <div>
+                <span id="calculator-tier">Роздрібна ціна</span>
+                <strong id="calculator-unit-price">${formatMoney(publicUnitPrice(product, selectedQuantity))}<small>/ шт.</small></strong>
               </div>
-              <div class="dimensions-grid" aria-label="Розміри предмета у міліметрах">
-                <div class="field dimension-field">
-                  <label for="hero-length">Довжина</label>
-                  <input class="input" id="hero-length" name="length" type="number" min="10" max="1200" value="${dimensions.length}" required inputmode="numeric" />
-                </div>
-                <div class="field dimension-field">
-                  <label for="hero-width">Ширина</label>
-                  <input class="input" id="hero-width" name="width" type="number" min="10" max="1200" value="${dimensions.width}" required inputmode="numeric" />
-                </div>
-                <div class="field dimension-field">
-                  <label for="hero-height">Висота</label>
-                  <input class="input" id="hero-height" name="height" type="number" min="10" max="1200" value="${dimensions.height}" required inputmode="numeric" />
-                </div>
-              </div>
-              <p class="microcopy">Внутрішній розмір — стільки місця буде у товару. Додамо технологічний запас у конструкторі.</p>
-              <button class="button button--accent fit-submit" type="submit">Знайти коробку <span aria-hidden="true">→</span></button>
-            </form>
-            <div class="fit-visual" id="hero-visual">
-              ${createBoxDiagram(dimensions, { objectLabel: 'ваш предмет', id: 'hero' })}
-              <div class="air-note" id="air-note">Рекомендуємо запас 5 мм з кожного боку.</div>
-            </div>
-          </div>
-        </div>
-      </section>`;
-}
-
-function renderPurposes(): string {
-  const scenarios = [
-    { structure: 'Самозбірна', dimensions: { length: 320, width: 240, height: 80 }, result: 'Плаский одяг, комплекти та аксесуари.' },
-    { structure: 'Кришка-дно', dimensions: { length: 340, width: 220, height: 120 }, result: 'Пара взуття з місцем для паперу.' },
-    { structure: 'Шухляда', dimensions: { length: 180, width: 120, height: 70 }, result: 'Набори, баночки та невеликі флакони.' },
-    { structure: 'Кришка-дно', dimensions: { length: 260, width: 260, height: 140 }, result: 'Сухі продукти, випічка та набори.' },
-    { structure: 'Кришка-дно', dimensions: { length: 240, width: 170, height: 80 }, result: 'Подарунковий набір із презентаційною подачею.' },
-    { structure: 'Самозбірна', dimensions: { length: 220, width: 160, height: 80 }, result: 'Невеликі пристрої з місцем для захисту.' },
-    { structure: 'Поштова', dimensions: { length: 300, width: 210, height: 100 }, result: 'Відправлення перевізником без зайвої обгортки.' },
-    { structure: 'Підбір за розміром', dimensions: { length: 240, width: 170, height: 80 }, result: 'Введіть габарити — підберемо найближчий формат.' },
-  ];
-
-  return `
-    <section class="section section--purpose" aria-labelledby="purpose-title">
-      <div class="shell">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">За предметом / 02</p>
-            <h2 id="purpose-title">Оберіть, що пакуєте.</h2>
-          </div>
-          <p>Спочатку оберіть сценарій. Праворуч з’явиться орієнтовна конструкція, а каталог уже буде відфільтровано.</p>
-        </div>
-        <div class="purpose-lab">
-          <div class="purpose-grid" role="group" aria-label="Сценарії пакування">
-            ${purposes
-              .map((item, index) => {
-                const scenario = scenarios[index];
-                return `
-                  <button
-                    class="purpose-card"
-                    type="button"
-                    data-purpose="${item.name}"
-                    data-index="${String(index + 1).padStart(2, '0')}"
-                    data-length="${scenario.dimensions.length}"
-                    data-width="${scenario.dimensions.width}"
-                    data-height="${scenario.dimensions.height}"
-                    data-structure="${scenario.structure}"
-                    data-result="${scenario.result}"
-                    aria-pressed="false"
-                  >
-                    <span class="purpose-card__number" aria-hidden="true">${String(index + 1).padStart(2, '0')}</span>
-                    <span class="purpose-card__copy">
-                      <strong>${item.name}</strong>
-                      <small>${item.note}</small>
-                    </span>
-                    <span class="purpose-card__action" aria-hidden="true">Обрати</span>
-                  </button>`;
-              })
-              .join('')}
-          </div>
-          <aside class="purpose-preview" id="purpose-preview" aria-live="polite">
-            <div class="purpose-preview__top">
-              <span>LIVE / СЦЕНАРІЙ</span>
-              <span id="purpose-preview-counter">— / 08</span>
-            </div>
-            <div class="purpose-preview__canvas" id="purpose-preview-canvas">
-              ${createBoxDiagram({ length: 240, width: 170, height: 80 }, { objectLabel: 'ваш предмет', id: 'purpose' })}
-            </div>
-            <div class="purpose-preview__info">
-              <span class="technical-label" id="purpose-preview-structure">Орієнтовна конструкція</span>
-              <h3 id="purpose-preview-title">Оберіть предмет</h3>
-              <p id="purpose-preview-note">Покажемо демо-формат коробки та підготуємо каталог до перегляду.</p>
-              <button class="button purpose-preview__cta" id="purpose-preview-cta" type="button" disabled>
-                Спочатку оберіть сценарій
-              </button>
-            </div>
-          </aside>
-        </div>
-      </div>
-    </section>`;
-}
-
-function renderCatalogSection(): string {
-  const types: BoxType[] = ['Самозбірна', 'Кришка-дно', 'Шухляда', 'Поштова'];
-  const materials: Material[] = ['Мікрогофрокартон', 'Картон 350 г/м²', 'Крафт-картон'];
-  return `
-    <section class="section" id="catalog" aria-labelledby="catalog-title">
-      <div class="shell">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Демо-каталог / 03</p>
-            <h2 id="catalog-title">Готові розміри, які легко порівняти.</h2>
-          </div>
-          <p>Асортимент, ціни й строки — демонстраційні дані. Підбір і ступенева ціна працюють як у майбутньому сервісі.</p>
-        </div>
-        <div class="catalog-layout">
-          <aside class="catalog-filters" aria-label="Фільтри каталогу">
-            <h3>Фільтри</h3>
-            <div class="field filter-full">
-              <label for="filter-purpose">Що пакуємо</label>
-              <select class="select" id="filter-purpose">
-                <option value="">Усі задачі</option>
-                ${purposes.map((item) => `<option value="${item.name}">${item.name}</option>`).join('')}
-              </select>
-            </div>
-            <div class="field filter-full">
-              <label for="filter-type">Тип коробки</label>
-              <select class="select" id="filter-type">
-                <option value="">Усі типи</option>
-                ${types.map((item) => `<option value="${item}">${item}</option>`).join('')}
-              </select>
-            </div>
-            <div class="field filter-full">
-              <label for="filter-material">Матеріал</label>
-              <select class="select" id="filter-material">
-                <option value="">Усі матеріали</option>
-                ${materials.map((item) => `<option value="${item}">${item}</option>`).join('')}
-              </select>
-            </div>
-            <label class="check"><input id="filter-stock" type="checkbox" /> <span>Є в наявності</span></label>
-            <label class="check"><input id="filter-brandable" type="checkbox" /> <span>Можна брендувати</span></label>
-            <label class="check"><input id="filter-postal" type="checkbox" /> <span>Для поштової відправки</span></label>
-            <div id="active-size-filter"></div>
-            <button class="button button--ghost" id="reset-filters" type="button">Скинути фільтри</button>
-          </aside>
-          <div class="catalog-main">
-            <div class="catalog-toolbar">
-              <div class="search-wrap">
-                <span class="search-icon" aria-hidden="true">⌕</span>
-                <label class="sr-only" for="catalog-search">Пошук у каталозі</label>
-                <input class="input" id="catalog-search" type="search" placeholder="Назва, артикул або призначення" autocomplete="off" />
-              </div>
-              <div class="field">
-                <label class="sr-only" for="catalog-sort">Сортування</label>
-                <select class="select" id="catalog-sort">
-                  <option value="recommended">Рекомендовані</option>
-                  <option value="price-asc">Спочатку дешевші</option>
-                  <option value="price-desc">Спочатку дорожчі</option>
-                  <option value="size">За об’ємом</option>
-                </select>
+              <div class="calculation-result__total">
+                <span>Весь тираж</span>
+                <strong id="calculator-total">${formatMoney(publicUnitPrice(product, selectedQuantity) * selectedQuantity)}</strong>
               </div>
             </div>
-            <div class="results-meta"><span id="results-count" aria-live="polite">Завантажуємо демо-товари…</span><span class="tag tag--accent">demo data</span></div>
-            <div id="catalog-results" aria-busy="true"></div>
+            <div class="threshold-note" id="threshold-note"></div>
+            <a class="button button--gold button--wide" href="#request">Перенести в заявку</a>
           </div>
         </div>
-      </div>
-    </section>`;
-}
+      </section>
 
-function renderWizardSection(): string {
-  return `
-    <section class="section section--ink" id="constructor" aria-labelledby="constructor-title">
-      <div class="shell">
-        <div class="section-head">
+      <section class="section business-section" id="business">
+        <div class="section-heading reveal">
           <div>
-            <p class="eyebrow">Box builder / 04</p>
-            <h2 id="constructor-title">Власна коробка — крок за кроком.</h2>
+            <p class="eyebrow"><span></span> Постійним клієнтам</p>
+            <h2>Ціна, яка не змінюється<br />від замовлення до замовлення.</h2>
           </div>
-          <p>Шість коротких кроків. Можна повертатися назад — введені дані залишаться на місці.</p>
-        </div>
-        <div class="wizard-shell">
-          <div class="wizard-main" id="wizard-main"></div>
-          <div class="wizard-visual" id="wizard-visual">
-            ${createBoxDiagram(wizardState.dimensions, { objectLabel: 'ваш продукт', id: 'wizard' })}
-          </div>
-        </div>
-      </div>
-    </section>`;
-}
-
-function renderBranding(): string {
-  return `
-    <section class="section" id="branding" aria-labelledby="branding-title">
-      <div class="shell">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Брендування / 05</p>
-            <h2 id="branding-title">Пакування, яке працює на бренд.</h2>
-          </div>
-          <p>Перемикач показує функціональну різницю: друк з’являється на коробці, а демо-ціна змінюється прозоро.</p>
-        </div>
-        <div class="branding-lab">
-          <div class="branding-copy">
-            <span class="technical-label">Demo branding options</span>
-            <h3>Додайте бренд тоді, коли готові.</h3>
-            <p class="muted">Не обіцяємо технологію до перевірки макета. У прототипі показані три типові сценарії.</p>
-            <ul>
-              <li>Без брендування — базова коробка</li>
-              <li>Наклейка — від +3 грн / шт. у демо</li>
-              <li>Одноколірний друк — від +5 грн / шт. у демо</li>
-            </ul>
-            <a class="button" href="#request">Надіслати макет</a>
-          </div>
-          <div class="branding-stage" id="branding-stage">
-            <div class="segmented" role="group" aria-label="Показати коробку без або з логотипом">
-              <button class="segment" type="button" data-brand-mode="plain" aria-pressed="true">Без логотипа</button>
-              <button class="segment" type="button" data-brand-mode="logo" aria-pressed="false">З логотипом</button>
-            </div>
-            <div id="branding-visual">${createBoxDiagram({ length: 240, width: 170, height: 80 }, { id: 'branding' })}</div>
-            <div class="branding-price"><span id="branding-caption">Чиста коробка</span><strong id="branding-cost">Базова ціна</strong></div>
-          </div>
-        </div>
-      </div>
-    </section>`;
-}
-
-function renderBusiness(): string {
-  return `
-    <section class="section section--accent" id="business" aria-labelledby="business-title">
-      <div class="shell">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Для бізнесу / 06</p>
-            <h2 id="business-title">Почніть із малого тиражу.</h2>
-          </div>
-          <p>Сервіс запам’ятовує параметри локально в браузері. Реальний кабінет і повтор замовлення — наступний етап після підтвердження процесів.</p>
+          <p>Персональні умови прив’язуються до акаунта після підтвердження менеджером.</p>
         </div>
         <div class="business-grid">
-          <article class="business-item">
-            <span class="business-item__num">01 / Зразки</span>
-            <h3>Спочатку перевірте.</h3>
-            <p>Запросіть демо-набір популярних розмірів і матеріалів перед великим тиражем.</p>
+          <article class="business-card reveal">
+            <span class="business-card__number">01</span>
+            <h3>Реєстрація</h3>
+            <p>Клієнт створює кабінет із контактами компанії. Новий профіль одразу видно в локальній демо-адмінці.</p>
           </article>
-          <article class="business-item">
-            <span class="business-item__num">02 / Свій розмір</span>
-            <h3>Менше повітря.</h3>
-            <p>Підженемо внутрішній розмір під продукт і покажемо орієнтир ціни до заявки.</p>
+          <article class="business-card reveal">
+            <span class="business-card__number">02</span>
+            <h3>Підтвердження</h3>
+            <p>Менеджер позначає клієнта як постійного та задає фіксовану націнку нижче публічної оптової.</p>
           </article>
-          <article class="business-item">
-            <span class="business-item__num">03 / Повтор</span>
-            <h3>Ті самі параметри.</h3>
-            <p>Збережіть розрахунок локально. Після запуску його можна перетворити на шаблон повторного замовлення.</p>
+          <article class="business-card business-card--accent reveal">
+            <span class="business-card__number">03</span>
+            <h3>Своя ціна</h3>
+            <p>Після входу каталог, калькулятор і заявка автоматично працюють за персональною ціною.</p>
+            <button class="text-link text-link--light" id="business-account-button" type="button">Відкрити кабінет <span>→</span></button>
           </article>
         </div>
-        <div class="process-line" aria-label="Етапи роботи">
-          <div class="process-step"><strong>Задача</strong><small>Предмет, розмір, тираж</small></div>
-          <div class="process-step"><strong>Зразок</strong><small>Матеріал і тест посадки</small></div>
-          <div class="process-step"><strong>Виробництво</strong><small>Після підтвердження макета</small></div>
-          <div class="process-step"><strong>Доставка</strong><small>За реальними умовами власника</small></div>
-        </div>
-      </div>
-    </section>`;
-}
+      </section>
 
-function renderDelivery(): string {
-  return `
-    <section class="section" id="delivery" aria-labelledby="delivery-title">
-      <div class="shell">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Логістика / 07</p>
-            <h2 id="delivery-title">Зрозумілі умови без прихованих кроків.</h2>
+      <section class="section request-section" id="request">
+        <div class="request-copy reveal">
+          <p class="eyebrow"><span></span> Заявка на замовлення</p>
+          <h2>Залиште номер —<br />менеджер уточнить деталі.</h2>
+          <p>
+            Тут немає вигаданих телефонів ToffiPacks. Клієнт залишає свої контакти,
+            а заявка з’являється в демо-адмінці.
+          </p>
+          <div class="request-summary" id="request-summary"></div>
+          <div class="local-warning">
+            <strong>Важливо</strong>
+            <p>На GitHub Pages дані не передаються власнику. Вони зберігаються локально для демонстрації сценарію.</p>
           </div>
-          <p>Прототип не приймає гроші та не надсилає замовлення. Нижче — структура, яку треба заповнити реальними умовами.</p>
         </div>
-        <div class="delivery-grid">
-          <article class="delivery-item">
-            <span class="delivery-item__num">01 / Доставка</span>
-            <h3>Україна</h3>
-            <p>Перевізники, міста відправки, строки й тариф потребують підтвердження власника.</p>
-          </article>
-          <article class="delivery-item">
-            <span class="delivery-item__num">02 / Оплата</span>
-            <h3>Після узгодження</h3>
-            <p>У демо є лише запит розрахунку. Рахунок, передоплата та документи не імітуються.</p>
-          </article>
-          <article class="delivery-item">
-            <span class="delivery-item__num">03 / Повернення</span>
-            <h3>Різні правила</h3>
-            <p>Для готових і персоналізованих коробок мають діяти окремі реальні умови повернення.</p>
-          </article>
-        </div>
-      </div>
-    </section>`;
-}
+        <form class="request-form reveal" id="request-form" novalidate>
+          <div class="request-form__head">
+            <span class="technical-label">Нова заявка</span>
+            <span id="request-account-hint">Без акаунта</span>
+          </div>
+          <div class="form-grid">
+            <label class="field">
+              <span>Ім’я *</span>
+              <input class="input" name="name" autocomplete="name" required />
+            </label>
+            <label class="field">
+              <span>Телефон *</span>
+              <input class="input" name="phone" type="tel" autocomplete="tel" placeholder="+380..." required />
+            </label>
+            <label class="field">
+              <span>Email</span>
+              <input class="input" name="email" type="email" autocomplete="email" />
+            </label>
+            <label class="field">
+              <span>Компанія</span>
+              <input class="input" name="company" autocomplete="organization" />
+            </label>
+          </div>
+          <label class="field">
+            <span>Коментар</span>
+            <textarea class="input textarea" name="comment" rows="4" placeholder="Строк, доставка, особливості замовлення"></textarea>
+          </label>
+          <label class="checkbox">
+            <input name="consent" type="checkbox" required />
+            <span>Погоджуюся на локальну обробку введених даних у цьому демо *</span>
+          </label>
+          <div class="form-status" id="request-status" aria-live="polite"></div>
+          <button class="button button--primary button--wide" type="submit">
+            Зберегти демо-заявку
+          </button>
+        </form>
+      </section>
 
-function renderFaq(): string {
-  return `
-    <section class="section" id="faq" aria-labelledby="faq-title">
-      <div class="shell">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">FAQ / 08</p>
-            <h2 id="faq-title">Все важливе перед замовленням.</h2>
-          </div>
-          <p>Технічні слова пояснюємо поруч із вибором. Невідомі бізнес-умови не маскуємо вигаданими обіцянками.</p>
-          <div class="faq-meta" aria-label="Коротко про розділ">
-            <span>06 відповідей</span>
-            <span>≈ 2 хв читання</span>
-          </div>
+      <section class="section faq-section" id="faq">
+        <div class="faq-intro reveal">
+          <p class="eyebrow"><span></span> FAQ / 06</p>
+          <h2>Коротко про ціни,<br />розміри й акаунти.</h2>
+          <p>Тільки те, що вже визначено прайсом і логікою прототипу.</p>
         </div>
-        <div class="faq-list">
+        <div class="faq-list reveal">
           ${faqItems
             .map(
               (item, index) => `
-                <details class="faq-item" ${index === 0 ? 'open' : ''}>
-                  <summary>${item.q}</summary>
-                  <p>${item.a}</p>
-                </details>`,
+                <details${index === 0 ? ' open' : ''}>
+                  <summary><span>${escapeHtml(item.question)}</span><i aria-hidden="true"></i></summary>
+                  <p>${escapeHtml(item.answer)}</p>
+                </details>
+              `,
             )
             .join('')}
         </div>
-      </div>
-    </section>`;
-}
+      </section>
+    </main>
 
-function renderContact(): string {
-  return `
-    <section class="section section--ink" id="request" aria-labelledby="request-title">
-      <div class="shell contact-layout">
-        <div class="contact-copy">
-          <p class="eyebrow">Запит / 09</p>
-          <h2 id="request-title">Покажіть продукт — ми підберемо коробку.</h2>
-          <p>Опишіть продукт і тираж. Форма перевіряє дані, але нічого не відправляє на сервер — це безпечна локальна демонстрація.</p>
-          <div class="contact-points" aria-label="Контактні дані">
-            <span><strong>Email:</strong> потрібен від власника</span>
-            <span><strong>Телефон:</strong> потрібен від власника</span>
-            <span><strong>Місто виробництва:</strong> потрібне від власника</span>
-          </div>
-        </div>
-        <form class="quote-form" id="quote-form" novalidate>
-          <h3>Запросити розрахунок</h3>
-          <p class="muted">Відповідь не надсилається. Успіх форми показує лише стан прототипу.</p>
-          <div class="form-grid">
-            <div class="field">
-              <label for="quote-name">Ім’я *</label>
-              <input class="input" id="quote-name" name="name" autocomplete="name" aria-describedby="quote-name-error" />
-              <p class="field-error" id="quote-name-error"></p>
-            </div>
-            <div class="field">
-              <label for="quote-contact">Телефон або email *</label>
-              <input class="input" id="quote-contact" name="contact" autocomplete="email" aria-describedby="quote-contact-error" />
-              <p class="field-error" id="quote-contact-error"></p>
-            </div>
-            <div class="field field--full">
-              <label for="quote-company">Компанія</label>
-              <input class="input" id="quote-company" name="company" autocomplete="organization" />
-              <p class="field-error"></p>
-            </div>
-            <div class="field field--full">
-              <label for="quote-message">Що пакуємо, розмір і тираж *</label>
-              <textarea class="textarea" id="quote-message" name="message" aria-describedby="quote-message-error" placeholder="Наприклад: свічка 90 × 90 × 110 мм, 100 штук, потрібна наклейка"></textarea>
-              <p class="field-error" id="quote-message-error"></p>
-            </div>
-            <div class="field field--full">
-              <label for="quote-logo">Макет логотипа, якщо є</label>
-              <input class="input" id="quote-logo" name="logo" type="file" accept=".svg,.pdf,.png,.jpg,.jpeg" aria-describedby="file-note" />
-              <span class="file-note" id="file-note">SVG, PDF, PNG або JPG. Файл залишається у вашому браузері.</span>
-            </div>
-            <div class="field field--full">
-              <label class="check"><input id="quote-consent" name="consent" type="checkbox" aria-describedby="quote-consent-error" /> <span>Погоджуюся на локальну обробку введених даних у цьому демо *</span></label>
-              <p class="field-error" id="quote-consent-error"></p>
-            </div>
-          </div>
-          <div class="form-status" id="form-status" role="status" aria-live="polite"></div>
-          <button class="button button--accent" id="quote-submit" type="submit">Перевірити запит</button>
-        </form>
-      </div>
-    </section>
-    </main>`;
-}
-
-function renderFooter(): string {
-  return `
     <footer class="site-footer">
-      <div class="shell footer-row">
-        <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true">□</span><span>Box Lab</span></a>
-        <p>${demoDisclaimer} © 2026 Box Lab prototype.</p>
+      <div class="footer-brand">
+        <span class="brand__mark brand__mark--large"><img src="./toffipacks-logo.webp" alt="" /></span>
+        <div><strong>TOFFIPACKS</strong><p>Самозбірні коробки за точним розміром.</p></div>
+      </div>
+      <div class="footer-links">
+        <a href="#catalog">Розміри</a>
+        <a href="#calculator">Ціни</a>
+        <a href="#request">Заявка</a>
+        <a href="#admin">Демо-адмінка</a>
+      </div>
+      <div class="footer-meta">
+        <p>Контакти, умови доставки та строки потрібні від власника.</p>
+        <span>© 2026 ToffiPacks · demo</span>
       </div>
     </footer>
-    <dialog class="product-dialog" id="product-dialog" aria-labelledby="product-dialog-title"></dialog>
-    <div class="toast" id="toast" role="status" aria-live="polite"></div>`;
+
+    <section class="admin-page" id="admin-page" hidden aria-labelledby="admin-title">
+      <header class="admin-header">
+        <a class="brand" href="#top">
+          <span class="brand__mark"><img src="./toffipacks-logo.webp" alt="" /></span>
+          <span class="brand__copy"><strong>TOFFIPACKS</strong><small>локальна демо-адмінка</small></span>
+        </a>
+        <a class="button button--ghost button--small" href="#top">Повернутися на сайт</a>
+      </header>
+      <div id="admin-content"></div>
+    </section>
+
+    <dialog class="account-dialog" id="account-dialog" aria-labelledby="account-dialog-title">
+      <button class="dialog-close" type="button" data-close-dialog aria-label="Закрити">×</button>
+      <div id="account-dialog-content"></div>
+    </dialog>
+  `;
 }
 
-app.innerHTML = [
-  renderHeader(),
-  renderHero(),
-  renderPurposes(),
-  renderCatalogSection(),
-  renderWizardSection(),
-  renderBranding(),
-  renderBusiness(),
-  renderDelivery(),
-  renderFaq(),
-  renderContact(),
-  renderFooter(),
-].join('');
+app.innerHTML = storefrontTemplate();
 
-function closeCustomSelect(wrapper: HTMLElement, returnFocus = false): void {
-  const trigger = wrapper.querySelector<HTMLButtonElement>('.select-trigger');
-  const menu = wrapper.querySelector<HTMLElement>('.select-menu');
-  wrapper.classList.remove('is-open');
-  trigger?.setAttribute('aria-expanded', 'false');
-  if (menu) {
-    if (menu.matches(':popover-open')) menu.hidePopover();
-    menu.hidden = true;
-  }
-  if (returnFocus) trigger?.focus();
-}
+const productGrid = document.querySelector<HTMLDivElement>('#product-grid');
+const catalogCount = document.querySelector<HTMLParagraphElement>('#catalog-count');
 
-function positionCustomSelectMenu(trigger: HTMLButtonElement, menu: HTMLElement): void {
-  if (!menu.matches(':popover-open')) return;
-  const rect = trigger.getBoundingClientRect();
-  const gap = 8;
-  const availableBelow = window.innerHeight - rect.bottom - gap;
-  const availableAbove = rect.top - gap;
-  const desiredHeight = Math.min(menu.scrollHeight, 288);
-  const openAbove = availableBelow < Math.min(desiredHeight, 190) && availableAbove > availableBelow;
-  const available = Math.max(120, openAbove ? availableAbove : availableBelow);
-
-  const menuWidth = Math.min(rect.width, window.innerWidth - 16);
-  const menuLeft = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - menuWidth - 8));
-  menu.style.left = `${menuLeft}px`;
-  menu.style.width = `${menuWidth}px`;
-  menu.style.maxHeight = `${Math.min(288, available)}px`;
-  menu.style.top = openAbove ? 'auto' : `${rect.bottom + gap}px`;
-  menu.style.bottom = openAbove ? `${window.innerHeight - rect.top + gap}px` : 'auto';
-}
-
-function syncCustomSelect(select: HTMLSelectElement): void {
-  const wrapper = select.closest<HTMLElement>('.custom-select');
-  if (!wrapper) return;
-  const selectedOption = select.options[select.selectedIndex];
-  const value = selectedOption?.textContent?.trim() || 'Оберіть варіант';
-  const valueNode = wrapper.querySelector<HTMLElement>('.select-trigger__value');
-  if (valueNode) valueNode.textContent = value;
-  wrapper.querySelectorAll<HTMLElement>('.select-option').forEach((option) => {
-    const selected = option.dataset.value === select.value;
-    option.classList.toggle('is-selected', selected);
-    option.setAttribute('aria-selected', String(selected));
-  });
-}
-
-function enhanceSelects(root: ParentNode = document): void {
-  root.querySelectorAll<HTMLSelectElement>('select.select:not([data-enhanced])').forEach((select) => {
-    select.dataset.enhanced = 'true';
-    select.classList.add('select-native');
-    select.tabIndex = -1;
-    select.setAttribute('aria-hidden', 'true');
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'custom-select';
-    select.parentNode?.insertBefore(wrapper, select);
-    wrapper.append(select);
-
-    const trigger = document.createElement('button');
-    trigger.className = 'select-trigger';
-    trigger.type = 'button';
-    trigger.id = `${select.id || `select-${Math.random().toString(36).slice(2)}`}-trigger`;
-    trigger.setAttribute('role', 'combobox');
-    trigger.setAttribute('aria-haspopup', 'listbox');
-    trigger.setAttribute('aria-expanded', 'false');
-    trigger.innerHTML = '<span class="select-trigger__value"></span><span class="select-trigger__chevron" aria-hidden="true"></span>';
-
-    const label = select.id ? document.querySelector<HTMLLabelElement>(`label[for="${select.id}"]`) : null;
-    if (label) {
-      label.htmlFor = trigger.id;
-      if (!label.id) label.id = `${trigger.id}-label`;
-      trigger.setAttribute('aria-labelledby', label.id);
-    } else {
-      trigger.setAttribute('aria-label', select.getAttribute('aria-label') || 'Оберіть варіант');
-    }
-
-    const menu = document.createElement('div');
-    menu.className = 'select-menu';
-    menu.id = `${trigger.id}-listbox`;
-    menu.setAttribute('role', 'listbox');
-    menu.setAttribute('popover', 'manual');
-    menu.hidden = true;
-    trigger.setAttribute('aria-controls', menu.id);
-
-    Array.from(select.options).forEach((nativeOption) => {
-      const option = document.createElement('button');
-      option.className = 'select-option';
-      option.type = 'button';
-      option.tabIndex = -1;
-      option.dataset.value = nativeOption.value;
-      option.setAttribute('role', 'option');
-      option.textContent = nativeOption.textContent;
-      option.addEventListener('click', () => {
-        select.value = nativeOption.value;
-        syncCustomSelect(select);
-        select.dispatchEvent(new Event('input', { bubbles: true }));
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-        closeCustomSelect(wrapper, true);
-      });
-      option.addEventListener('keydown', (event) => {
-        const options = Array.from(menu.querySelectorAll<HTMLButtonElement>('.select-option'));
-        const current = options.indexOf(option);
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-          event.preventDefault();
-          const direction = event.key === 'ArrowDown' ? 1 : -1;
-          options[(current + direction + options.length) % options.length]?.focus();
+function productCard(product: Product): string {
+  const account = currentAccount();
+  const retail = publicUnitPrice(product, 1);
+  const wholesale = publicUnitPrice(product, WHOLESALE_FROM);
+  const partner = account?.partner ? unitPrice(product, 1, account) : null;
+  return `
+    <article class="product-card${product.id === selectedProductId ? ' is-selected' : ''}">
+      <div class="product-card__head">
+        <div>
+          <span class="product-card__number">№${product.number}</span>
+          <span class="product-card__sku">${escapeHtml(product.sku)}</span>
+        </div>
+        <span class="material-dot" title="${escapeHtml(MATERIAL)}"></span>
+      </div>
+      <div class="product-card__visual">${boxDiagram(product, true)}</div>
+      <h3>${dimensionText(product.dimensions)}</h3>
+      <p>${escapeHtml(MATERIAL)}</p>
+      <div class="product-card__prices">
+        ${
+          partner !== null
+            ? `<div class="partner-price"><span>Ваша фіксована</span><strong>${formatMoney(partner)}<small>/шт.</small></strong></div>`
+            : `
+              <div><span>1–999 шт.</span><strong>${formatMoney(retail)}</strong></div>
+              <div><span>від 1000 шт.</span><strong>${formatMoney(wholesale)}</strong></div>
+            `
         }
-        if (event.key === 'Home' || event.key === 'End') {
-          event.preventDefault();
-          options[event.key === 'Home' ? 0 : options.length - 1]?.focus();
-        }
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          closeCustomSelect(wrapper, true);
-        }
-        if (event.key === 'Tab') closeCustomSelect(wrapper);
-      });
-      menu.append(option);
-    });
-
-    wrapper.append(trigger, menu);
-    syncCustomSelect(select);
-    select.addEventListener('change', () => syncCustomSelect(select));
-
-    trigger.addEventListener('click', () => {
-      const shouldOpen = !wrapper.classList.contains('is-open');
-      document.querySelectorAll<HTMLElement>('.custom-select.is-open').forEach((item) => closeCustomSelect(item));
-      if (!shouldOpen) return;
-      wrapper.classList.add('is-open');
-      trigger.setAttribute('aria-expanded', 'true');
-      menu.hidden = false;
-      menu.showPopover();
-      positionCustomSelectMenu(trigger, menu);
-    });
-    trigger.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && wrapper.classList.contains('is-open')) {
-        event.preventDefault();
-        closeCustomSelect(wrapper, true);
-        return;
-      }
-      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-      event.preventDefault();
-      if (!wrapper.classList.contains('is-open')) trigger.click();
-      const options = Array.from(menu.querySelectorAll<HTMLButtonElement>('.select-option'));
-      const selectedIndex = Math.max(0, select.selectedIndex);
-      const targetIndex = event.key === 'End' ? options.length - 1 : event.key === 'Home' ? 0 : selectedIndex;
-      options[targetIndex]?.focus();
-    });
-  });
-}
-
-function enhanceRanges(root: ParentNode = document): void {
-  root.querySelectorAll<HTMLInputElement>('input.range').forEach((range) => {
-    const update = () => {
-      const min = Number(range.min) || 0;
-      const max = Number(range.max) || 100;
-      const value = Number(range.value);
-      const progress = ((value - min) / Math.max(1, max - min)) * 100;
-      range.style.setProperty('--range-progress', `${progress}%`);
-    };
-    update();
-    if (range.dataset.rangeEnhanced === 'true') return;
-    range.dataset.rangeEnhanced = 'true';
-    range.addEventListener('input', update);
-  });
-}
-
-document.addEventListener('pointerdown', (event) => {
-  const target = event.target as Node;
-  document.querySelectorAll<HTMLElement>('.custom-select.is-open').forEach((wrapper) => {
-    if (!wrapper.contains(target)) closeCustomSelect(wrapper);
-  });
-});
-
-window.addEventListener('resize', () => {
-  document.querySelectorAll<HTMLElement>('.custom-select.is-open').forEach((wrapper) => closeCustomSelect(wrapper));
-});
-
-window.addEventListener('scroll', (event) => {
-  if (event.target instanceof Element && event.target.closest('.select-menu')) return;
-  document.querySelectorAll<HTMLElement>('.custom-select.is-open').forEach((wrapper) => closeCustomSelect(wrapper));
-}, true);
-
-function getHeroDimensions(): Dimensions {
-  return {
-    length: Number(document.querySelector<HTMLInputElement>('#hero-length')?.value) || 0,
-    width: Number(document.querySelector<HTMLInputElement>('#hero-width')?.value) || 0,
-    height: Number(document.querySelector<HTMLInputElement>('#hero-height')?.value) || 0,
-  };
-}
-
-function updateHeroDiagram(): void {
-  const dimensions = getHeroDimensions();
-  const visual = document.querySelector<HTMLDivElement>('#hero-visual');
-  if (!visual || Object.values(dimensions).some((value) => value <= 0)) return;
-  const purpose = document.querySelector<HTMLSelectElement>('#hero-purpose')?.value.toLowerCase() ?? 'предмет';
-  const oldDiagram = visual.querySelector('.box-diagram');
-  oldDiagram?.remove();
-  visual.insertAdjacentHTML('afterbegin', createBoxDiagram(dimensions, { objectLabel: purpose, id: 'hero' }));
-  const volumeLiters = (dimensions.length * dimensions.width * dimensions.height) / 1_000_000;
-  const note = document.querySelector<HTMLDivElement>('#air-note');
-  if (note) {
-    note.textContent = `Об’єм: ${volumeLiters.toFixed(1)} л · рекомендуємо запас 5 мм.`;
-  }
-}
-
-function productVolume(product: Product): number {
-  return product.inner.length * product.inner.width * product.inner.height;
-}
-
-function fitsDimensions(product: Product, target: Dimensions): boolean {
-  const productSides = [product.inner.length, product.inner.width, product.inner.height].sort((a, b) => a - b);
-  const targetSides = [target.length, target.width, target.height].sort((a, b) => a - b);
-  return targetSides.every((side, index) => side <= productSides[index]);
+      </div>
+      <button class="button button--card" type="button" data-select-product="${product.id}">
+        ${product.id === selectedProductId ? 'Обрано для розрахунку' : 'Обрати й розрахувати'}
+      </button>
+    </article>
+  `;
 }
 
 function filteredProducts(): Product[] {
-  const query = catalogState.search.trim().toLocaleLowerCase('uk-UA');
+  const normalizedSearch = catalogSearch.trim().toLocaleLowerCase('uk-UA');
   const result = products.filter((product) => {
-    const haystack = [product.name, product.sku, product.description, product.type, product.material, ...product.purposes]
-      .join(' ')
-      .toLocaleLowerCase('uk-UA');
-    return (
-      (!query || haystack.includes(query)) &&
-      (!catalogState.purpose || product.purposes.includes(catalogState.purpose)) &&
-      (!catalogState.type || product.type === catalogState.type) &&
-      (!catalogState.material || product.material === catalogState.material) &&
-      (!catalogState.inStock || product.inStock) &&
-      (!catalogState.brandable || product.brandable) &&
-      (!catalogState.postal || product.postal) &&
-      (!catalogState.dimensions || fitsDimensions(product, catalogState.dimensions))
-    );
+    const searchable = `${product.number} ${product.sku} ${product.name} ${dimensionText(product.dimensions)}`.toLocaleLowerCase('uk-UA');
+    const matchesSearch = !normalizedSearch || searchable.includes(normalizedSearch);
+    const matchesDimensions = !fitDimensions || fitsWithRotation(fitDimensions, product.dimensions);
+    return matchesSearch && matchesDimensions;
   });
 
-  if (catalogState.sort === 'price-asc') return result.sort((a, b) => a.basePrice - b.basePrice);
-  if (catalogState.sort === 'price-desc') return result.sort((a, b) => b.basePrice - a.basePrice);
-  if (catalogState.sort === 'size') return result.sort((a, b) => productVolume(a) - productVolume(b));
-  if (catalogState.dimensions) return result.sort((a, b) => productVolume(a) - productVolume(b));
-  return result;
-}
-
-function renderSkeletons(): string {
-  return `<div class="skeleton-grid" aria-label="Завантаження товарів">
-    ${Array.from({ length: 6 }, () => `
-      <div class="skeleton-card" aria-hidden="true">
-        <div class="skeleton skeleton--visual"></div>
-        <div class="skeleton skeleton--line"></div>
-        <div class="skeleton skeleton--line short"></div>
-      </div>`).join('')}
-  </div>`;
-}
-
-function renderProductCard(product: Product): string {
-  return `
-    <button class="product-card" type="button" data-product-id="${product.id}" aria-label="Відкрити картку ${product.name}">
-      <span class="product-card__visual">
-        ${createProductVisual(product)}
-      </span>
-      <span class="product-card__body">
-        <span class="product-card__topline">
-          <span class="technical-label">${product.sku}</span>
-          <span class="tag tag--accent">demo</span>
-        </span>
-        <h3>${product.shortName}</h3>
-        <span class="mono">Внутрішній: ${dimensionsText(product.inner)}</span>
-        <span class="product-card__use">${product.purposes.slice(0, 3).join(' · ')}</span>
-        <span class="product-card__foot">
-          <span><span class="price">від ${formatMoney(unitPrice(product.basePrice, 500))}</span><br /><small>/ шт. при 500</small></span>
-          <span><strong>мін. ${product.minOrder}</strong><br /><small>${product.inStock ? 'є в наявності' : 'під замовлення'}</small></span>
-        </span>
-      </span>
-    </button>`;
-}
-
-function updateActiveSizeFilter(): void {
-  const container = document.querySelector<HTMLDivElement>('#active-size-filter');
-  if (!container) return;
-  container.innerHTML = catalogState.dimensions
-    ? `<div class="active-size"><strong>Розмір предмета</strong><br />${dimensionsText(catalogState.dimensions)}<br /><button type="button" id="clear-size-filter">Прибрати розмір</button></div>`
-    : '';
-  document.querySelector<HTMLButtonElement>('#clear-size-filter')?.addEventListener('click', () => {
-    catalogState.dimensions = null;
-    scheduleCatalogRender();
+  return result.sort((first, second) => {
+    if (catalogSort === 'price') return first.basePrice - second.basePrice;
+    if (catalogSort === 'number') return Number(first.number) - Number(second.number);
+    return productVolume(first) - productVolume(second);
   });
 }
 
-function renderCatalog(): void {
-  const results = document.querySelector<HTMLDivElement>('#catalog-results');
-  const count = document.querySelector<HTMLSpanElement>('#results-count');
-  if (!results || !count) return;
-  updateActiveSizeFilter();
-
-  if (catalogState.loading) {
-    results.setAttribute('aria-busy', 'true');
-    results.innerHTML = renderSkeletons();
-    count.textContent = 'Завантажуємо демо-товари…';
+function renderCatalog(loading = false): void {
+  if (!productGrid || !catalogCount) return;
+  if (loading) {
+    catalogCount.textContent = 'Оновлюємо список…';
+    productGrid.innerHTML = Array.from(
+      { length: 6 },
+      () => '<div class="product-skeleton" aria-hidden="true"><i></i><i></i><i></i></div>',
+    ).join('');
     return;
   }
 
-  results.setAttribute('aria-busy', 'false');
-  if (catalogState.search.trim().toLocaleLowerCase('uk-UA') === 'помилка') {
-    count.textContent = 'Каталог тимчасово недоступний';
-    results.innerHTML = `
-      <div class="error-state" role="alert">
-        <div><div class="empty-box" aria-hidden="true"></div><h3>Не вдалося завантажити каталог.</h3><p class="muted">Це демонстраційний стан помилки. Дані не втрачено.</p><button class="button" id="catalog-retry" type="button">Спробувати ще раз</button></div>
-      </div>`;
-    document.querySelector<HTMLButtonElement>('#catalog-retry')?.addEventListener('click', () => {
-      catalogState.search = '';
-      const search = document.querySelector<HTMLInputElement>('#catalog-search');
-      if (search) search.value = '';
-      scheduleCatalogRender();
-    });
-    return;
-  }
-
-  const items = filteredProducts();
-  count.textContent = `${items.length} ${items.length === 1 ? 'коробка' : items.length < 5 ? 'коробки' : 'коробок'} знайдено`;
-  if (!items.length) {
-    results.innerHTML = `
+  const result = filteredProducts();
+  const fitNote = fitDimensions ? ` · предмет ${dimensionText(fitDimensions)}` : '';
+  catalogCount.textContent = `${result.length} із ${products.length} розмірів${fitNote}`;
+  if (!result.length) {
+    productGrid.innerHTML = `
       <div class="empty-state">
-        <div><div class="empty-box" aria-hidden="true"></div><h3>Готового розміру немає.</h3><p class="muted">Змініть фільтри або створіть коробку під ваш продукт.</p><a class="button button--accent" href="#constructor">Створити свій розмір</a></div>
-      </div>`;
+        <div class="empty-state__box" aria-hidden="true"></div>
+        <h3>Готового розміру немає.</h3>
+        <p>Змініть габарити предмета або залиште заявку з потрібним розміром.</p>
+        <a class="button button--primary" href="#request">Описати свій розмір</a>
+      </div>
+    `;
     return;
   }
-  results.innerHTML = `<div class="product-grid">${items.map(renderProductCard).join('')}</div>`;
-  results.querySelectorAll<HTMLButtonElement>('[data-product-id]').forEach((button) => {
-    button.addEventListener('click', () => openProduct(button.dataset.productId ?? ''));
-  });
+  productGrid.innerHTML = result.map(productCard).join('');
 }
 
-function scheduleCatalogRender(delay = 320): void {
+function queueCatalogRender(): void {
   window.clearTimeout(catalogTimer);
-  catalogState.loading = true;
-  renderCatalog();
-  catalogTimer = window.setTimeout(() => {
-    catalogState.loading = false;
-    renderCatalog();
-  }, delay);
+  renderCatalog(true);
+  catalogTimer = window.setTimeout(() => renderCatalog(false), 320);
 }
 
-function openProduct(productId: string): void {
-  const product = products.find((item) => item.id === productId);
-  const dialog = document.querySelector<HTMLDialogElement>('#product-dialog');
-  if (!product || !dialog) return;
-  productView = 'assembled';
-  productQuantity = product.minOrder;
-  productHasLogo = false;
-  renderProductDialog(product);
-  dialog.showModal();
-  document.body.classList.add('dialog-open');
-}
+function renderCalculator(): void {
+  const product = selectedProduct();
+  const account = currentAccount();
+  const calculatedUnit = unitPrice(product, selectedQuantity, account);
+  const total = calculatedUnit * selectedQuantity;
+  const tier = priceTypeLabel(selectedQuantity, account);
 
-function renderProductDialog(product: Product): void {
-  const dialog = document.querySelector<HTMLDialogElement>('#product-dialog');
-  if (!dialog) return;
-  const currentUnit = unitPrice(product.basePrice + (productHasLogo ? 3 : 0), productQuantity);
-  dialog.innerHTML = `
-    <button class="icon-button dialog-close" id="dialog-close" type="button" aria-label="Закрити картку">×</button>
-    <article class="product-detail">
-      <div class="product-detail__visual" id="detail-visual">
-        ${createProductVisual(product, productView, productHasLogo)}
-        <div class="detail-tabs" role="group" aria-label="Вигляд коробки">
-          <button class="detail-tab" type="button" data-detail-view="assembled" aria-pressed="${productView === 'assembled'}">Зібрана</button>
-          <button class="detail-tab" type="button" data-detail-view="net" aria-pressed="${productView === 'net'}">Розгортка</button>
-        </div>
-      </div>
-      <div class="product-detail__content">
-        <span class="tag tag--accent">demo data</span>
-        <h2 id="product-dialog-title">${product.shortName}</h2>
-        <p>${product.description}</p>
-        <div class="detail-measures">
-          <div><span class="technical-label">Внутрішній</span><strong>${dimensionsText(product.inner)}</strong></div>
-          <div><span class="technical-label">Зовнішній</span><strong>${dimensionsText(product.outer)}</strong></div>
-          <div><span class="technical-label">Матеріал</span><strong>${product.material}</strong></div>
-          <div><span class="technical-label">Відправка</span><strong>${product.shippingDays}</strong></div>
-        </div>
-        <div class="field">
-          <label for="detail-color">Колір</label>
-          <select class="select" id="detail-color">${product.colors.map((color) => `<option>${color}</option>`).join('')}</select>
-        </div>
-        ${product.brandable ? `<label class="check" style="margin-top:1rem"><input id="detail-logo" type="checkbox" ${productHasLogo ? 'checked' : ''} /> <span>Додати демо-наклейку (+3 грн / шт. до знижки)</span></label>` : '<p class="muted" style="margin-top:1rem">Брендування цієї демо-моделі недоступне.</p>'}
-        <div class="detail-price">
-          <div><span class="technical-label">Разом, орієнтовно</span><strong class="detail-price__total" id="detail-total">${formatMoney(currentUnit * productQuantity)}</strong></div>
-          <div><strong id="detail-unit">${formatMoney(currentUnit)} / шт.</strong><br /><small class="muted">мін. ${product.minOrder} шт.</small></div>
-        </div>
-        <div class="field">
-          <label for="detail-quantity">Кількість: <strong id="detail-quantity-value">${productQuantity} шт.</strong></label>
-          <input class="range" id="detail-quantity" type="range" min="${product.minOrder}" max="500" step="${product.minOrder >= 25 ? 25 : 10}" value="${productQuantity}" />
-        </div>
-        <div class="tier-row" aria-label="Демо-ціна за тиражами">
-          ${[10, 50, 100, 500].map((quantity) => `<div><strong>${quantity}+</strong><small>${formatMoney(unitPrice(product.basePrice, quantity))}/шт.</small></div>`).join('')}
-        </div>
-        <p class="muted"><small>Демо-правило: 50+ −10%, 100+ −18%, 500+ −28%. Ціна стане точною після перевірки матеріалу й макета.</small></p>
-        <a class="button button--accent" href="#request" id="detail-request">Запросити цей розрахунок</a>
-      </div>
-    </article>`;
-
-  enhanceSelects(dialog);
-  enhanceRanges(dialog);
-  document.querySelector<HTMLButtonElement>('#dialog-close')?.addEventListener('click', () => dialog.close());
-  dialog.querySelectorAll<HTMLButtonElement>('[data-detail-view]').forEach((button) => {
-    button.addEventListener('click', () => {
-      productView = button.dataset.detailView === 'net' ? 'net' : 'assembled';
-      renderProductDialog(product);
-    });
+  document.querySelectorAll<HTMLSelectElement>('#calculator-product-select, #hero-product-select').forEach((select) => {
+    select.value = product.id;
   });
-  document.querySelector<HTMLInputElement>('#detail-logo')?.addEventListener('change', (event) => {
-    productHasLogo = (event.currentTarget as HTMLInputElement).checked;
-    renderProductDialog(product);
+  document.querySelectorAll<HTMLInputElement>('#quantity-input, #hero-quantity-input').forEach((input) => {
+    input.value = String(selectedQuantity);
   });
-  document.querySelector<HTMLInputElement>('#detail-quantity')?.addEventListener('input', (event) => {
-    productQuantity = Number((event.currentTarget as HTMLInputElement).value);
-    updateProductPrice(product);
-  });
-  document.querySelector<HTMLAnchorElement>('#detail-request')?.addEventListener('click', () => {
-    const message = document.querySelector<HTMLTextAreaElement>('#quote-message');
-    if (message) message.value = `${product.name}, ${productQuantity} шт.${productHasLogo ? ', з логотипом' : ''}.`;
-    dialog.close();
-  });
-}
 
-function updateProductPrice(product: Product): void {
-  const withLogo = product.basePrice + (productHasLogo ? 3 : 0);
-  const currentUnit = unitPrice(withLogo, productQuantity);
-  const quantityValue = document.querySelector<HTMLElement>('#detail-quantity-value');
-  const total = document.querySelector<HTMLElement>('#detail-total');
-  const unit = document.querySelector<HTMLElement>('#detail-unit');
-  if (quantityValue) quantityValue.textContent = `${productQuantity} шт.`;
-  if (total) total.textContent = formatMoney(currentUnit * productQuantity);
-  if (unit) unit.textContent = `${formatMoney(currentUnit)} / шт.`;
-}
+  const range = document.querySelector<HTMLInputElement>('#quantity-range');
+  if (range) range.value = String(selectedQuantity);
 
-function wizardProgress(): string {
-  const labels = ['Предмет', 'Розмір', 'Тип', 'Матеріал', 'Бренд', 'Тираж'];
-  return `<ol class="wizard-progress" aria-label="Прогрес конструктора">
-    ${labels.map((label, index) => `<li class="${index === wizardState.step ? 'is-active' : index < wizardState.step ? 'is-complete' : ''}"><span>0${index + 1} ${label}</span></li>`).join('')}
-  </ol>`;
-}
+  const output = document.querySelector<HTMLOutputElement>('#quantity-output');
+  if (output) output.value = `${selectedQuantity.toLocaleString('uk-UA')} шт.`;
 
-function choiceButton(field: string, value: string, selected: boolean, note = '', label = value): string {
-  return `<button class="choice" type="button" data-wizard-field="${field}" data-wizard-value="${value}" aria-pressed="${selected}"><strong>${label}</strong>${note ? `<small>${note}</small>` : ''}</button>`;
-}
-
-function wizardStepMarkup(): string {
-  if (wizardState.step === 0) {
-    return `<div class="wizard-step"><span class="technical-label">Крок 01 / 06</span><h3>Що буде всередині?</h3><p>Ми використаємо відповідь для рекомендації конструкції.</p><div class="choice-grid">${purposes.map((item) => choiceButton('purpose', item.name, wizardState.purpose === item.name, item.note)).join('')}</div></div>`;
+  const preview = document.querySelector<HTMLDivElement>('#calculator-preview');
+  if (preview) {
+    preview.classList.remove('is-changing');
+    void preview.offsetWidth;
+    preview.classList.add('is-changing');
+    preview.innerHTML = boxDiagram(product, true);
   }
-  if (wizardState.step === 1) {
-    return `<div class="wizard-step"><span class="technical-label">Крок 02 / 06</span><h3>Внутрішній розмір.</h3><p>Додайте розміри самого предмета. На схемі вони змінюються одразу.</p><div class="wizard-form-grid">
-      <div class="field"><label for="wizard-length">Довжина, мм</label><input class="input" id="wizard-length" data-wizard-input="length" type="number" min="10" max="1200" value="${wizardState.dimensions.length}" /></div>
-      <div class="field"><label for="wizard-width">Ширина, мм</label><input class="input" id="wizard-width" data-wizard-input="width" type="number" min="10" max="1200" value="${wizardState.dimensions.width}" /></div>
-      <div class="field"><label for="wizard-height">Висота, мм</label><input class="input" id="wizard-height" data-wizard-input="height" type="number" min="10" max="1200" value="${wizardState.dimensions.height}" /></div>
-      <div class="field"><label for="wizard-weight">Вага предмета, кг</label><input class="input" id="wizard-weight" data-wizard-input="weight" type="number" min="0.05" max="30" step="0.05" value="${wizardState.weight}" /></div>
-    </div></div>`;
+
+  const tierElement = document.querySelector<HTMLElement>('#calculator-tier');
+  if (tierElement) tierElement.textContent = tier;
+  const unitElement = document.querySelector<HTMLElement>('#calculator-unit-price');
+  if (unitElement) unitElement.innerHTML = `${formatMoney(calculatedUnit)}<small>/ шт.</small>`;
+  const totalElement = document.querySelector<HTMLElement>('#calculator-total');
+  if (totalElement) totalElement.textContent = formatMoney(total);
+
+  const heroTier = document.querySelector<HTMLElement>('#hero-price-label');
+  if (heroTier) heroTier.textContent = tier;
+  const heroTotal = document.querySelector<HTMLElement>('#hero-total');
+  if (heroTotal) heroTotal.textContent = formatMoney(total);
+  const heroUnit = document.querySelector<HTMLElement>('#hero-unit');
+  if (heroUnit) heroUnit.textContent = `${formatMoney(calculatedUnit)} / шт.`;
+
+  const badge = document.querySelector<HTMLElement>('#account-price-badge');
+  if (badge) {
+    badge.textContent = account?.partner ? 'Персональна ціна активна' : 'Публічна ціна';
+    badge.classList.toggle('is-partner', Boolean(account?.partner));
   }
-  if (wizardState.step === 2) {
-    return `<div class="wizard-step"><span class="technical-label">Крок 03 / 06</span><h3>Як коробка відкривається?</h3><p>Замість технічних кодів — три зрозумілі сценарії.</p><div class="choice-grid">
-      ${choiceButton('structure', 'Поштова', wizardState.structure === 'Поштова', 'Закривається клапаном, зручна для доставки')}
-      ${choiceButton('structure', 'Кришка-дно', wizardState.structure === 'Кришка-дно', 'Презентаційна коробка з окремою кришкою')}
-      ${choiceButton('structure', 'Шухляда', wizardState.structure === 'Шухляда', 'Висувний лоток для невеликих продуктів')}
-      ${choiceButton('structure', 'Самозбірна', wizardState.structure === 'Самозбірна', 'Пласка при зберіганні, збирається без клею')}
-    </div></div>`;
-  }
-  if (wizardState.step === 3) {
-    return `<div class="wizard-step"><span class="technical-label">Крок 04 / 06</span><h3>Матеріал і колір.</h3><p>Пояснюємо матеріал через задачу, а не лише щільність.</p><div class="choice-grid">
-      ${choiceButton('material', 'Мікрогофрокартон', wizardState.material === 'Мікрогофрокартон', 'Міцний для доставки та ваги')}
-      ${choiceButton('material', 'Картон 350 г/м²', wizardState.material === 'Картон 350 г/м²', 'Гладкий для чистої поліграфії')}
-      ${choiceButton('material', 'Крафт-картон', wizardState.material === 'Крафт-картон', 'Теплий природний колір, без еко-кліше')}
-    </div><div class="wizard-form-grid"><div class="field field--full"><label for="wizard-color">Колір</label><select class="select" id="wizard-color" data-wizard-input="color"><option ${wizardState.color === 'Крафт' ? 'selected' : ''}>Крафт</option><option ${wizardState.color === 'Білий' ? 'selected' : ''}>Білий</option><option ${wizardState.color === 'Графіт' ? 'selected' : ''}>Графіт</option></select></div></div></div>`;
-  }
-  if (wizardState.step === 4) {
-    return `<div class="wizard-step"><span class="technical-label">Крок 05 / 06</span><h3>Брендувати коробку?</h3><p>Ціна стане точною після перевірки макета. Поки показуємо зрозумілу демо-надбавку.</p><div class="choice-grid">
-      ${choiceButton('branding', 'none', wizardState.branding === 'none', '+0 грн / шт.', 'Без брендування')}
-      ${choiceButton('branding', 'sticker', wizardState.branding === 'sticker', '+3 грн / шт. у демо', 'Наклейка')}
-      ${choiceButton('branding', 'print', wizardState.branding === 'print', '+5 грн / шт. у демо', 'Одноколірний друк')}
-    </div></div>`;
-  }
-  if (wizardState.step === 5) {
-    return `<div class="wizard-step"><span class="technical-label">Крок 06 / 06</span><h3>Кількість і строк.</h3><p>Більший тираж знижує демо-ціну однієї коробки за тим самим правилом, що й у каталозі.</p><div class="wizard-form-grid">
-      <div class="field field--full"><label for="wizard-quantity">Кількість: <strong id="wizard-quantity-value">${wizardState.quantity} шт.</strong></label><input class="range" id="wizard-quantity" data-wizard-input="quantity" type="range" min="10" max="500" step="10" value="${wizardState.quantity}" /></div>
-      <div class="field field--full"><label for="wizard-urgency">Бажаний строк</label><select class="select" id="wizard-urgency" data-wizard-input="urgency"><option ${wizardState.urgency === 'Стандартний' ? 'selected' : ''}>Стандартний</option><option ${wizardState.urgency === 'Потрібно швидко' ? 'selected' : ''}>Потрібно швидко</option><option ${wizardState.urgency === 'Гнучкий' ? 'selected' : ''}>Гнучкий</option></select></div>
-    </div><p class="muted" style="margin-top:1rem"><small>Демо-знижки: 50+ −10%, 100+ −18%, 500+ −28%.</small></p></div>`;
-  }
-  const quote = calculateWizardQuote();
-  const brandingLabel = wizardState.branding === 'none' ? 'Без брендування' : wizardState.branding === 'sticker' ? 'Наклейка' : 'Одноколірний друк';
-  return `<div class="wizard-step"><span class="technical-label">Результат / орієнтовно</span><h3>Коробка зібрана.</h3><div class="summary-list">
-    <div><span>Призначення</span><strong>${wizardState.purpose}</strong></div>
-    <div><span>Внутрішній розмір</span><strong>${dimensionsText(wizardState.dimensions)}</strong></div>
-    <div><span>Конструкція</span><strong>${wizardState.structure}</strong></div>
-    <div><span>Матеріал / колір</span><strong>${wizardState.material} / ${wizardState.color}</strong></div>
-    <div><span>Брендування</span><strong>${brandingLabel}</strong></div>
-    <div><span>Тираж</span><strong>${wizardState.quantity} шт.</strong></div>
-  </div><div class="summary-total">≈ ${formatMoney(quote.total)}</div><p>${formatMoney(quote.unit)} / шт. · демо-розрахунок, не оферта.</p><div class="hero-actions"><button class="button button--light" id="save-calculation" type="button">Зберегти локально</button><button class="button button--accent" id="wizard-request" type="button">Надіслати заявку</button></div></div>`;
-}
 
-function calculateWizardQuote(): { unit: number; total: number } {
-  const volume = wizardState.dimensions.length * wizardState.dimensions.width * wizardState.dimensions.height;
-  const volumePrice = 12 + volume / 130_000;
-  const materialMultiplier = wizardState.material === 'Мікрогофрокартон' ? 1.08 : wizardState.material === 'Картон 350 г/м²' ? 1 : 1.04;
-  const structureMultiplier = wizardState.structure === 'Кришка-дно' || wizardState.structure === 'Шухляда' ? 1.18 : 1;
-  const brandAdd = wizardState.branding === 'sticker' ? 3 : wizardState.branding === 'print' ? 5 : 0;
-  const unit = unitPrice((volumePrice * materialMultiplier * structureMultiplier) + brandAdd, wizardState.quantity);
-  return { unit, total: Math.round(unit * wizardState.quantity) };
-}
-
-function updateWizardDiagram(): void {
-  const visual = document.querySelector<HTMLDivElement>('#wizard-visual');
-  if (!visual) return;
-  const savedNote = visual.querySelector('.saved-note')?.outerHTML ?? '';
-  visual.innerHTML = `${createBoxDiagram(wizardState.dimensions, { logo: wizardState.branding === 'sticker' || wizardState.branding === 'print', objectLabel: wizardState.purpose ? wizardState.purpose.toLowerCase() : 'ваш продукт', id: 'wizard' })}${savedNote}`;
-}
-
-function validateWizardStep(): string {
-  if (wizardState.step === 0 && !wizardState.purpose) return 'Оберіть, що буде всередині.';
-  if (wizardState.step === 1) {
-    if (Object.values(wizardState.dimensions).some((value) => value < 10 || value > 1200)) return 'Вкажіть усі розміри від 10 до 1200 мм.';
-    if (wizardState.weight <= 0 || wizardState.weight > 30) return 'Вкажіть вагу від 0,05 до 30 кг.';
-  }
-  if (wizardState.step === 2 && !wizardState.structure) return 'Оберіть конструкцію коробки.';
-  if (wizardState.step === 3 && !wizardState.material) return 'Оберіть матеріал.';
-  if (wizardState.step === 4 && !wizardState.branding) return 'Оберіть варіант брендування.';
-  if (wizardState.step === 5 && wizardState.quantity < 10) return 'Мінімальний демо-тираж — 10 штук.';
-  return '';
-}
-
-function renderWizard(): void {
-  const main = document.querySelector<HTMLDivElement>('#wizard-main');
-  if (!main) return;
-  const isSummary = wizardState.step === 6;
-  main.innerHTML = `${wizardProgress()}${wizardStepMarkup()}<p class="wizard-error" id="wizard-error" role="alert"></p>${isSummary ? '' : `<div class="wizard-actions">${wizardState.step > 0 ? '<button class="button button--light" data-wizard-back type="button">← Назад</button>' : '<span></span>'}<button class="button button--accent" data-wizard-next type="button">${wizardState.step === 5 ? 'Показати розрахунок' : 'Далі →'}</button></div>`}`;
-  updateWizardDiagram();
-  enhanceSelects(main);
-  enhanceRanges(main);
-
-  main.querySelectorAll<HTMLButtonElement>('[data-wizard-field]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const field = button.dataset.wizardField;
-      const value = button.dataset.wizardValue ?? '';
-      if (field === 'purpose') wizardState.purpose = value as Purpose;
-      if (field === 'structure') wizardState.structure = value as BoxType;
-      if (field === 'material') wizardState.material = value as Material;
-      if (field === 'branding') wizardState.branding = value as WizardState['branding'];
-      renderWizard();
-    });
-  });
-  main.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-wizard-input]').forEach((input) => {
-    input.addEventListener('input', () => {
-      const field = input.dataset.wizardInput;
-      if (field === 'length' || field === 'width' || field === 'height') {
-        wizardState.dimensions[field] = Number(input.value);
-        updateWizardDiagram();
-      }
-      if (field === 'weight') wizardState.weight = Number(input.value);
-      if (field === 'quantity') {
-        wizardState.quantity = Number(input.value);
-        const output = document.querySelector<HTMLElement>('#wizard-quantity-value');
-        if (output) output.textContent = `${wizardState.quantity} шт.`;
-      }
-      if (field === 'color') wizardState.color = input.value;
-      if (field === 'urgency') wizardState.urgency = input.value;
-    });
-  });
-  main.querySelector<HTMLButtonElement>('[data-wizard-next]')?.addEventListener('click', () => {
-    const error = validateWizardStep();
-    const errorNode = document.querySelector<HTMLParagraphElement>('#wizard-error');
-    if (error) {
-      if (errorNode) errorNode.textContent = error;
-      return;
-    }
-    wizardState.step = Math.min(wizardState.step + 1, 6);
-    renderWizard();
-  });
-  main.querySelector<HTMLButtonElement>('[data-wizard-back]')?.addEventListener('click', () => {
-    wizardState.step = Math.max(wizardState.step - 1, 0);
-    renderWizard();
-  });
-  document.querySelector<HTMLButtonElement>('#save-calculation')?.addEventListener('click', saveCalculation);
-  document.querySelector<HTMLButtonElement>('#wizard-request')?.addEventListener('click', sendWizardToForm);
-}
-
-function saveCalculation(): void {
-  try {
-    localStorage.setItem('box-lab-calculation', JSON.stringify({ ...wizardState, savedAt: new Date().toISOString() }));
-    const visual = document.querySelector<HTMLDivElement>('#wizard-visual');
-    if (visual) visual.insertAdjacentHTML('beforeend', '<div class="saved-note">Розрахунок збережено локально на цьому пристрої ✓</div>');
-    showToast('Розрахунок збережено в localStorage. Сервер не використовується.');
-  } catch {
-    showToast('Браузер заблокував локальне збереження. Дані конструктора залишились на сторінці.');
-  }
-}
-
-function sendWizardToForm(): void {
-  const message = document.querySelector<HTMLTextAreaElement>('#quote-message');
-  if (message) {
-    const branding = wizardState.branding === 'none' ? 'без брендування' : wizardState.branding === 'sticker' ? 'наклейка' : 'одноколірний друк';
-    message.value = `${wizardState.purpose}: ${dimensionsText(wizardState.dimensions)}, ${wizardState.structure}, ${wizardState.material}, ${branding}, ${wizardState.quantity} шт.`;
-  }
-  document.querySelector('#request')?.scrollIntoView({ behavior: 'smooth' });
-  window.setTimeout(() => document.querySelector<HTMLInputElement>('#quote-name')?.focus(), 450);
-}
-
-function updateBranding(): void {
-  const stage = document.querySelector<HTMLDivElement>('#branding-stage');
-  const visual = document.querySelector<HTMLDivElement>('#branding-visual');
-  const caption = document.querySelector<HTMLElement>('#branding-caption');
-  const cost = document.querySelector<HTMLElement>('#branding-cost');
-  if (!stage || !visual || !caption || !cost) return;
-  stage.classList.toggle('is-branded', brandingMode === 'logo');
-  visual.innerHTML = createBoxDiagram({ length: 240, width: 170, height: 80 }, { logo: brandingMode === 'logo', id: 'branding' });
-  caption.textContent = brandingMode === 'logo' ? 'Одноколірний демо-друк' : 'Чиста коробка';
-  cost.textContent = brandingMode === 'logo' ? '+5 грн / шт. у демо' : 'Базова ціна';
-  document.querySelectorAll<HTMLButtonElement>('[data-brand-mode]').forEach((button) => {
-    button.setAttribute('aria-pressed', String(button.dataset.brandMode === brandingMode));
-  });
-}
-
-function fieldError(input: HTMLInputElement | HTMLTextAreaElement, message: string): void {
-  input.setAttribute('aria-invalid', message ? 'true' : 'false');
-  const error = document.querySelector<HTMLElement>(`#${input.id}-error`);
-  if (error) error.textContent = message;
-}
-
-function validateQuoteForm(form: HTMLFormElement): boolean {
-  const name = form.elements.namedItem('name') as HTMLInputElement;
-  const contact = form.elements.namedItem('contact') as HTMLInputElement;
-  const message = form.elements.namedItem('message') as HTMLTextAreaElement;
-  const consent = form.elements.namedItem('consent') as HTMLInputElement;
-  const contactLooksValid = /@/.test(contact.value) || /\d[\d\s()+-]{7,}/.test(contact.value);
-  fieldError(name, name.value.trim().length >= 2 ? '' : 'Вкажіть ім’я — щонайменше 2 символи.');
-  fieldError(contact, contactLooksValid ? '' : 'Вкажіть коректний email або телефон.');
-  fieldError(message, message.value.trim().length >= 10 ? '' : 'Опишіть продукт, розмір або бажаний тираж.');
-  consent.setAttribute('aria-invalid', consent.checked ? 'false' : 'true');
-  const consentError = document.querySelector<HTMLElement>('#quote-consent-error');
-  if (consentError) consentError.textContent = consent.checked ? '' : 'Потрібна згода для демонстрації форми.';
-  const firstInvalid = form.querySelector<HTMLInputElement | HTMLTextAreaElement>('[aria-invalid="true"]');
-  firstInvalid?.focus();
-  return !firstInvalid;
-}
-
-function setFormStatus(type: 'success' | 'error' | '', message: string): void {
-  const status = document.querySelector<HTMLDivElement>('#form-status');
-  if (!status) return;
-  status.className = `form-status${type ? ` is-visible form-status--${type}` : ''}`;
-  status.textContent = message;
-}
-
-function showToast(message: string): void {
-  const toast = document.querySelector<HTMLDivElement>('#toast');
-  if (!toast) return;
-  toast.textContent = message;
-  toast.classList.add('is-visible');
-  window.setTimeout(() => toast.classList.remove('is-visible'), 3200);
-}
-
-function bindGlobalEvents(): void {
-  const menuButton = document.querySelector<HTMLButtonElement>('.menu-toggle');
-  const nav = document.querySelector<HTMLElement>('#main-nav');
-  menuButton?.addEventListener('click', () => {
-    const open = menuButton.getAttribute('aria-expanded') === 'true';
-    menuButton.setAttribute('aria-expanded', String(!open));
-    menuButton.setAttribute('aria-label', open ? 'Відкрити меню' : 'Закрити меню');
-    nav?.classList.toggle('is-open', !open);
-  });
-  nav?.querySelectorAll('a').forEach((link) => link.addEventListener('click', () => {
-    nav.classList.remove('is-open');
-    menuButton?.setAttribute('aria-expanded', 'false');
-  }));
-
-  document.querySelectorAll<HTMLInputElement>('#hero-length, #hero-width, #hero-height').forEach((input) => input.addEventListener('input', updateHeroDiagram));
-  document.querySelector<HTMLSelectElement>('#hero-purpose')?.addEventListener('change', updateHeroDiagram);
-  document.querySelector<HTMLFormElement>('#fit-form')?.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const form = event.currentTarget as HTMLFormElement;
-    if (!form.reportValidity()) return;
-    catalogState.dimensions = getHeroDimensions();
-    catalogState.purpose = (document.querySelector<HTMLSelectElement>('#hero-purpose')?.value ?? '') as Purpose;
-    const filterPurpose = document.querySelector<HTMLSelectElement>('#filter-purpose');
-    if (filterPurpose) {
-      filterPurpose.value = catalogState.purpose;
-      syncCustomSelect(filterPurpose);
-    }
-    scheduleCatalogRender(520);
-    document.querySelector('#catalog')?.scrollIntoView({ behavior: 'smooth' });
-  });
-
-  document.querySelectorAll<HTMLButtonElement>('[data-purpose]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const selected = button.dataset.purpose as Purpose;
-      catalogState.purpose = selected;
-      document.querySelectorAll<HTMLButtonElement>('[data-purpose]').forEach((item) => item.setAttribute('aria-pressed', String(item.dataset.purpose === catalogState.purpose)));
-      const select = document.querySelector<HTMLSelectElement>('#filter-purpose');
-      if (select) {
-        select.value = catalogState.purpose;
-        syncCustomSelect(select);
-      }
-      const dimensions = {
-        length: Number(button.dataset.length),
-        width: Number(button.dataset.width),
-        height: Number(button.dataset.height),
-      };
-      const preview = document.querySelector<HTMLElement>('#purpose-preview');
-      const canvas = document.querySelector<HTMLElement>('#purpose-preview-canvas');
-      const counter = document.querySelector<HTMLElement>('#purpose-preview-counter');
-      const structure = document.querySelector<HTMLElement>('#purpose-preview-structure');
-      const title = document.querySelector<HTMLElement>('#purpose-preview-title');
-      const note = document.querySelector<HTMLElement>('#purpose-preview-note');
-      const cta = document.querySelector<HTMLButtonElement>('#purpose-preview-cta');
-      if (preview) {
-        preview.classList.remove('is-changing');
-        void preview.offsetWidth;
-        preview.classList.add('is-selected', 'is-changing');
-      }
-      if (canvas) canvas.innerHTML = createBoxDiagram(dimensions, { objectLabel: selected.toLowerCase(), id: 'purpose' });
-      if (counter) counter.textContent = `${button.dataset.index} / 08`;
-      if (structure) structure.textContent = button.dataset.structure ?? 'Орієнтовна конструкція';
-      if (title) title.textContent = selected;
-      if (note) note.textContent = button.dataset.result ?? '';
-      if (cta) {
-        cta.disabled = false;
-        cta.textContent = `Показати коробки для «${selected.toLowerCase()}»`;
-      }
-      scheduleCatalogRender();
-    });
-  });
-
-  document.querySelector<HTMLButtonElement>('#purpose-preview-cta')?.addEventListener('click', () => {
-    document.querySelector('#catalog')?.scrollIntoView({ behavior: 'smooth' });
-  });
-
-  const purposeSection = document.querySelector<HTMLElement>('.section--purpose');
-  if (purposeSection) {
-    purposeSection.classList.add('has-purpose-motion');
-    if ('IntersectionObserver' in window) {
-      const purposeObserver = new IntersectionObserver(
-        (entries, observer) => {
-          entries.forEach((entry) => {
-            if (!entry.isIntersecting) return;
-            purposeSection.classList.add('is-visible');
-            observer.disconnect();
-          });
-        },
-        { threshold: 0.16 },
-      );
-      purposeObserver.observe(purposeSection);
+  const threshold = document.querySelector<HTMLElement>('#threshold-note');
+  if (threshold) {
+    if (account?.partner) {
+      threshold.innerHTML = `<strong>Фіксована ціна:</strong> ${formatMoney(calculatedUnit)} за одиницю незалежно від тиражу.`;
+    } else if (selectedQuantity < WHOLESALE_FROM) {
+      const missing = WHOLESALE_FROM - selectedQuantity;
+      const wholesaleTotal = publicUnitPrice(product, WHOLESALE_FROM) * WHOLESALE_FROM;
+      threshold.innerHTML = `Ще <strong>${missing.toLocaleString('uk-UA')} шт.</strong> до оптового тарифу. 1000 шт. коштуватимуть ${formatMoney(wholesaleTotal)}.`;
     } else {
-      purposeSection.classList.add('is-visible');
+      threshold.innerHTML = `<strong>Оптовий тариф активний.</strong> Економія проти роздрібної ціни — ${formatMoney(selectedQuantity)} на всьому тиражі.`;
     }
   }
 
-  const search = document.querySelector<HTMLInputElement>('#catalog-search');
-  search?.addEventListener('input', () => {
-    catalogState.search = search.value;
-    scheduleCatalogRender();
-  });
-  document.querySelector<HTMLSelectElement>('#filter-purpose')?.addEventListener('change', (event) => {
-    catalogState.purpose = (event.currentTarget as HTMLSelectElement).value as Purpose | '';
-    scheduleCatalogRender();
-  });
-  document.querySelector<HTMLSelectElement>('#filter-type')?.addEventListener('change', (event) => {
-    catalogState.type = (event.currentTarget as HTMLSelectElement).value as BoxType | '';
-    scheduleCatalogRender();
-  });
-  document.querySelector<HTMLSelectElement>('#filter-material')?.addEventListener('change', (event) => {
-    catalogState.material = (event.currentTarget as HTMLSelectElement).value as Material | '';
-    scheduleCatalogRender();
-  });
-  document.querySelector<HTMLInputElement>('#filter-stock')?.addEventListener('change', (event) => {
-    catalogState.inStock = (event.currentTarget as HTMLInputElement).checked;
-    scheduleCatalogRender();
-  });
-  document.querySelector<HTMLInputElement>('#filter-brandable')?.addEventListener('change', (event) => {
-    catalogState.brandable = (event.currentTarget as HTMLInputElement).checked;
-    scheduleCatalogRender();
-  });
-  document.querySelector<HTMLInputElement>('#filter-postal')?.addEventListener('change', (event) => {
-    catalogState.postal = (event.currentTarget as HTMLInputElement).checked;
-    scheduleCatalogRender();
-  });
-  document.querySelector<HTMLSelectElement>('#catalog-sort')?.addEventListener('change', (event) => {
-    catalogState.sort = (event.currentTarget as HTMLSelectElement).value as CatalogState['sort'];
-    scheduleCatalogRender();
-  });
-  document.querySelector<HTMLButtonElement>('#reset-filters')?.addEventListener('click', () => {
-    Object.assign(catalogState, { search: '', purpose: '', type: '', material: '', inStock: false, brandable: false, postal: false, dimensions: null, sort: 'recommended' });
-    const ids = ['catalog-search', 'filter-purpose', 'filter-type', 'filter-material', 'catalog-sort'];
-    ids.forEach((id) => {
-      const element = document.querySelector<HTMLInputElement | HTMLSelectElement>(`#${id}`);
-      if (element) {
-        element.value = id === 'catalog-sort' ? 'recommended' : '';
-        if (element instanceof HTMLSelectElement) syncCustomSelect(element);
-      }
-    });
-    ['filter-stock', 'filter-brandable', 'filter-postal'].forEach((id) => {
-      const checkbox = document.querySelector<HTMLInputElement>(`#${id}`);
-      if (checkbox) checkbox.checked = false;
-    });
-    document.querySelectorAll<HTMLButtonElement>('[data-purpose]').forEach((button) => button.setAttribute('aria-pressed', 'false'));
-    scheduleCatalogRender();
-  });
-
-  document.querySelectorAll<HTMLButtonElement>('[data-brand-mode]').forEach((button) => {
-    button.addEventListener('click', () => {
-      brandingMode = button.dataset.brandMode === 'logo' ? 'logo' : 'plain';
-      updateBranding();
-    });
-  });
-
-  const dialog = document.querySelector<HTMLDialogElement>('#product-dialog');
-  dialog?.addEventListener('close', () => document.body.classList.remove('dialog-open'));
-  dialog?.addEventListener('click', (event) => {
-    if (event.target === dialog) dialog.close();
-  });
-
-  document.querySelectorAll<HTMLDetailsElement>('.faq-item').forEach((item) => {
-    item.addEventListener('toggle', () => {
-      if (!item.open) return;
-      document.querySelectorAll<HTMLDetailsElement>('.faq-item[open]').forEach((other) => {
-        if (other !== item) other.open = false;
-      });
-    });
-  });
-
-  const quoteForm = document.querySelector<HTMLFormElement>('#quote-form');
-  quoteForm?.addEventListener('submit', (event) => {
-    event.preventDefault();
-    if (!validateQuoteForm(quoteForm)) {
-      setFormStatus('error', 'Перевірте виділені поля. Дані не відправлено.');
-      return;
-    }
-    const submit = document.querySelector<HTMLButtonElement>('#quote-submit');
-    if (submit) {
-      submit.disabled = true;
-      submit.innerHTML = '<span class="spinner" aria-hidden="true"></span> Перевіряємо локально…';
-    }
-    setFormStatus('', '');
-    window.setTimeout(() => {
-      const contact = quoteForm.elements.namedItem('contact') as HTMLInputElement;
-      if (contact.value.toLowerCase().includes('error')) {
-        setFormStatus('error', 'Демо-помилка: не вдалося підготувати локальну заявку. Змініть контакт і повторіть.');
-      } else {
-        setFormStatus('success', 'Запит перевірено. Дані залишилися у вашому браузері й нікуди не надсилалися.');
-        quoteForm.querySelectorAll('[aria-invalid]').forEach((element) => element.setAttribute('aria-invalid', 'false'));
-      }
-      if (submit) {
-        submit.disabled = false;
-        submit.textContent = 'Перевірити запит';
-      }
-    }, 850);
-  });
-  quoteForm?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea').forEach((input) => {
-    input.addEventListener('input', () => {
-      if (document.querySelector('#form-status.form-status--success')) setFormStatus('', '');
-      if (input.getAttribute('aria-invalid') === 'true') {
-        input.setAttribute('aria-invalid', 'false');
-        const error = document.querySelector<HTMLElement>(`#${input.id}-error`);
-        if (error) error.textContent = '';
-      }
-    });
-  });
+  const summary = document.querySelector<HTMLDivElement>('#request-summary');
+  if (summary) {
+    summary.innerHTML = `
+      <span class="technical-label">Поточний розрахунок</span>
+      <strong>Коробка №${product.number}</strong>
+      <p>${dimensionText(product.dimensions)} · ${selectedQuantity.toLocaleString('uk-UA')} шт.</p>
+      <div><span>${tier}</span><b>${formatMoney(total)}</b></div>
+    `;
+  }
 }
 
-bindGlobalEvents();
-enhanceSelects();
-enhanceRanges();
-renderCatalog();
-renderWizard();
-updateBranding();
-window.setTimeout(() => {
-  catalogState.loading = false;
-  renderCatalog();
-}, 520);
+function selectProduct(productId: string, scrollToCalculator = false): void {
+  if (!products.some((product) => product.id === productId)) return;
+  selectedProductId = productId;
+  renderCatalog(false);
+  renderCalculator();
+  if (scrollToCalculator) {
+    document.querySelector('#calculator')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+function setQuantity(value: number): void {
+  selectedQuantity = clampQuantity(value);
+  renderCalculator();
+}
+
+function renderAccountButton(): void {
+  const button = document.querySelector<HTMLButtonElement>('#account-button');
+  const account = currentAccount();
+  if (!button) return;
+  button.textContent = account ? account.name.split(' ')[0] : 'Кабінет';
+  button.classList.toggle('is-signed-in', Boolean(account));
+
+  const hint = document.querySelector<HTMLElement>('#request-account-hint');
+  if (hint) hint.textContent = account ? `${account.name}${account.partner ? ' · партнер' : ''}` : 'Без акаунта';
+
+  const form = document.querySelector<HTMLFormElement>('#request-form');
+  if (form && account) {
+    const setValue = (name: string, value: string): void => {
+      const input = form.elements.namedItem(name);
+      if (input instanceof HTMLInputElement && !input.value) input.value = value;
+    };
+    setValue('name', account.name);
+    setValue('phone', account.phone);
+    setValue('email', account.email);
+    setValue('company', account.company);
+  }
+}
+
+function accountDialogContent(): string {
+  const account = currentAccount();
+  if (account) {
+    const accountOrders = orders().filter((order) => order.accountId === account.id);
+    return `
+      <div class="account-panel">
+        <p class="eyebrow"><span></span> Особистий кабінет</p>
+        <h2 id="account-dialog-title">${escapeHtml(account.name)}</h2>
+        <p>${escapeHtml(account.email)}${account.company ? ` · ${escapeHtml(account.company)}` : ''}</p>
+        <div class="account-status${account.partner ? ' is-partner' : ''}">
+          <span>${account.partner ? 'Постійний клієнт' : 'Новий клієнт'}</span>
+          <strong>${account.partner ? `Базова ціна + ${account.fixedMarkup.toFixed(2)} грн` : 'Публічні ціни'}</strong>
+        </div>
+        <div class="account-orders">
+          <div class="account-orders__head"><strong>Мої локальні заявки</strong><span>${accountOrders.length}</span></div>
+          ${
+            accountOrders.length
+              ? accountOrders
+                  .slice()
+                  .reverse()
+                  .map(
+                    (order) => `
+                      <article>
+                        <div><strong>№${order.productNumber} · ${order.quantity.toLocaleString('uk-UA')} шт.</strong><span>${new Date(order.createdAt).toLocaleDateString('uk-UA')}</span></div>
+                        <b>${formatMoney(order.total)}</b>
+                        <small>${order.status}</small>
+                      </article>
+                    `,
+                  )
+                  .join('')
+              : '<p class="muted">Заявок у цьому браузері ще немає.</p>'
+          }
+        </div>
+        <div class="account-actions">
+          ${account.role === 'admin' ? '<a class="button button--primary" href="#admin" data-close-dialog>Відкрити адмінку</a>' : '<a class="button button--primary" href="#calculator" data-close-dialog>Новий розрахунок</a>'}
+          <button class="button button--ghost" type="button" id="logout-button">Вийти</button>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="auth-layout">
+      <div class="auth-intro">
+        <p class="eyebrow"><span></span> Кабінет ToffiPacks</p>
+        <h2 id="account-dialog-title">Увійдіть або створіть акаунт.</h2>
+        <p>Постійним клієнтам менеджер може активувати фіксовану ціну нижче публічної оптової.</p>
+        <div class="demo-access">
+          <strong>Демо-доступ</strong>
+          <p>Клієнт: client@toffipacks.demo / client123</p>
+          <p>Адмін: admin@toffipacks.demo / admin123</p>
+        </div>
+      </div>
+      <div class="auth-forms">
+        <div class="auth-tabs" role="tablist">
+          <button class="is-active" type="button" role="tab" aria-selected="true" data-auth-tab="login">Вхід</button>
+          <button type="button" role="tab" aria-selected="false" data-auth-tab="register">Реєстрація</button>
+        </div>
+        <form id="login-form" class="auth-form" data-auth-panel="login" novalidate>
+          <label class="field"><span>Email</span><input class="input" name="email" type="email" required /></label>
+          <label class="field"><span>Пароль</span><input class="input" name="password" type="password" required /></label>
+          <div class="form-status" data-auth-status aria-live="polite"></div>
+          <button class="button button--primary button--wide" type="submit">Увійти</button>
+        </form>
+        <form id="register-form" class="auth-form" data-auth-panel="register" hidden novalidate>
+          <div class="form-grid">
+            <label class="field"><span>Ім’я *</span><input class="input" name="name" required /></label>
+            <label class="field"><span>Телефон *</span><input class="input" name="phone" type="tel" required /></label>
+          </div>
+          <label class="field"><span>Компанія</span><input class="input" name="company" /></label>
+          <label class="field"><span>Email *</span><input class="input" name="email" type="email" required /></label>
+          <label class="field"><span>Пароль, від 6 символів *</span><input class="input" name="password" type="password" minlength="6" required /></label>
+          <div class="form-status" data-auth-status aria-live="polite"></div>
+          <button class="button button--primary button--wide" type="submit">Створити акаунт</button>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+function openAccountDialog(): void {
+  const dialog = document.querySelector<HTMLDialogElement>('#account-dialog');
+  const content = document.querySelector<HTMLDivElement>('#account-dialog-content');
+  if (!dialog || !content) return;
+  content.innerHTML = accountDialogContent();
+  if (typeof dialog.showModal === 'function') dialog.showModal();
+  else dialog.setAttribute('open', '');
+}
+
+function setFormStatus(form: HTMLFormElement, message: string, type: 'error' | 'success'): void {
+  const status = form.querySelector<HTMLElement>('[data-auth-status]');
+  if (!status) return;
+  status.textContent = message;
+  status.className = `form-status is-${type}`;
+}
+
+function login(email: string, password: string): Account | null {
+  const normalized = email.trim().toLocaleLowerCase('uk-UA');
+  const account = accounts().find(
+    (candidate) => candidate.email.toLocaleLowerCase('uk-UA') === normalized && candidate.password === password,
+  );
+  if (!account) return null;
+  localStorage.setItem(STORAGE.session, account.id);
+  return account;
+}
+
+function handleLogin(form: HTMLFormElement, adminOnly = false): void {
+  if (!form.reportValidity()) return;
+  const formData = new FormData(form);
+  const account = login(String(formData.get('email') ?? ''), String(formData.get('password') ?? ''));
+  if (!account || (adminOnly && account.role !== 'admin')) {
+    setFormStatus(form, adminOnly ? 'Потрібен демо-акаунт адміністратора.' : 'Невірний email або пароль.', 'error');
+    return;
+  }
+  renderAccountButton();
+  renderCalculator();
+  renderCatalog(false);
+  if (adminOnly) {
+    renderAdmin();
+  } else {
+    openAccountDialog();
+  }
+}
+
+function handleRegister(form: HTMLFormElement): void {
+  if (!form.reportValidity()) return;
+  const formData = new FormData(form);
+  const email = String(formData.get('email') ?? '').trim().toLocaleLowerCase('uk-UA');
+  const existingAccounts = accounts();
+  if (existingAccounts.some((account) => account.email.toLocaleLowerCase('uk-UA') === email)) {
+    setFormStatus(form, 'Акаунт із таким email уже існує.', 'error');
+    return;
+  }
+  const account: Account = {
+    id: `account-${Date.now().toString(36)}`,
+    name: String(formData.get('name') ?? '').trim(),
+    phone: String(formData.get('phone') ?? '').trim(),
+    company: String(formData.get('company') ?? '').trim(),
+    email,
+    password: String(formData.get('password') ?? ''),
+    role: 'client',
+    partner: false,
+    fixedMarkup: DEFAULT_PARTNER_MARKUP,
+    createdAt: new Date().toISOString(),
+  };
+  existingAccounts.push(account);
+  writeStorage(STORAGE.accounts, existingAccounts);
+  localStorage.setItem(STORAGE.session, account.id);
+  renderAccountButton();
+  renderCalculator();
+  renderCatalog(false);
+  openAccountDialog();
+}
+
+function submitRequest(form: HTMLFormElement): void {
+  const status = document.querySelector<HTMLDivElement>('#request-status');
+  if (!form.reportValidity()) {
+    if (status) {
+      status.className = 'form-status is-error';
+      status.textContent = 'Перевірте обов’язкові поля та згоду.';
+    }
+    return;
+  }
+
+  const formData = new FormData(form);
+  const product = selectedProduct();
+  const account = currentAccount();
+  const calculatedUnit = unitPrice(product, selectedQuantity, account);
+  const order: Order = {
+    id: `TP-${Date.now().toString(36).toUpperCase()}`,
+    createdAt: new Date().toISOString(),
+    customerName: String(formData.get('name') ?? '').trim(),
+    phone: String(formData.get('phone') ?? '').trim(),
+    email: String(formData.get('email') ?? '').trim(),
+    company: String(formData.get('company') ?? '').trim(),
+    comment: String(formData.get('comment') ?? '').trim(),
+    productId: product.id,
+    productNumber: product.number,
+    dimensions: product.dimensions,
+    quantity: selectedQuantity,
+    unitPrice: calculatedUnit,
+    total: calculatedUnit * selectedQuantity,
+    priceType: priceTypeLabel(selectedQuantity, account),
+    accountId: account?.id,
+    status: 'Нова',
+  };
+  const storedOrders = orders();
+  storedOrders.push(order);
+  writeStorage(STORAGE.orders, storedOrders);
+
+  if (status) {
+    status.className = 'form-status is-success';
+    status.innerHTML = `<strong>Заявку ${order.id} збережено локально.</strong><span>Вона вже доступна у демо-адмінці цього браузера.</span>`;
+  }
+  form.querySelector<HTMLButtonElement>('button[type="submit"]')?.focus();
+}
+
+function orderStatusOptions(selected: OrderStatus): string {
+  const statuses: OrderStatus[] = ['Нова', 'У роботі', 'Уточнення', 'Підтверджена', 'Закрита'];
+  return statuses
+    .map((status) => `<option value="${status}"${status === selected ? ' selected' : ''}>${status}</option>`)
+    .join('');
+}
+
+function renderAdmin(): void {
+  const content = document.querySelector<HTMLDivElement>('#admin-content');
+  if (!content) return;
+  const account = currentAccount();
+  if (!account || account.role !== 'admin') {
+    content.innerHTML = `
+      <div class="admin-login">
+        <p class="eyebrow"><span></span> Захищений демо-розділ</p>
+        <h1 id="admin-title">Вхід для менеджера.</h1>
+        <p>У реальному продукті тут потрібні серверна авторизація, права доступу та база даних.</p>
+        <form id="admin-login-form" class="auth-form" novalidate>
+          <label class="field"><span>Email</span><input class="input" name="email" type="email" value="admin@toffipacks.demo" required /></label>
+          <label class="field"><span>Пароль</span><input class="input" name="password" type="password" value="admin123" required /></label>
+          <div class="form-status" data-auth-status aria-live="polite"></div>
+          <button class="button button--primary button--wide" type="submit">Увійти в демо-адмінку</button>
+        </form>
+      </div>
+    `;
+    return;
+  }
+
+  const storedOrders = orders().slice().reverse();
+  const clients = accounts().filter((item) => item.role === 'client');
+  const openOrders = storedOrders.filter((order) => order.status !== 'Закрита').length;
+  const total = storedOrders.reduce((sum, order) => sum + order.total, 0);
+
+  content.innerHTML = `
+    <div class="admin-shell">
+      <div class="admin-title-row">
+        <div>
+          <p class="eyebrow"><span></span> Локальна демо-адмінка</p>
+          <h1 id="admin-title">Заявки та клієнти.</h1>
+        </div>
+        <div>
+          <span>${escapeHtml(account.email)}</span>
+          <button class="text-link" id="admin-logout" type="button">Вийти</button>
+        </div>
+      </div>
+      <div class="admin-warning">
+        Це демонстрація в localStorage. Заявки з інших браузерів і пристроїв сюди не потрапляють.
+      </div>
+      <div class="admin-stats">
+        <article><span>Усі заявки</span><strong>${storedOrders.length}</strong></article>
+        <article><span>Активні</span><strong>${openOrders}</strong></article>
+        <article><span>Клієнти</span><strong>${clients.length}</strong></article>
+        <article><span>Сума демо-заявок</span><strong>${formatMoney(total)}</strong></article>
+      </div>
+      <section class="admin-section">
+        <div class="admin-section__head"><h2>Заявки</h2><span>${storedOrders.length} записів</span></div>
+        <div class="orders-list">
+          ${
+            storedOrders.length
+              ? storedOrders
+                  .map(
+                    (order) => `
+                      <article class="order-card">
+                        <div class="order-card__top">
+                          <div><span>${escapeHtml(order.id)}</span><strong>${escapeHtml(order.customerName)}</strong></div>
+                          <select class="select status-select" data-order-status="${escapeHtml(order.id)}">${orderStatusOptions(order.status)}</select>
+                        </div>
+                        <div class="order-card__grid">
+                          <div><span>Контакт</span><a href="tel:${escapeHtml(order.phone)}">${escapeHtml(order.phone)}</a><small>${escapeHtml(order.email || 'Email не вказано')}</small></div>
+                          <div><span>Коробка</span><strong>№${escapeHtml(order.productNumber)}</strong><small>${dimensionText(order.dimensions)}</small></div>
+                          <div><span>Тираж</span><strong>${order.quantity.toLocaleString('uk-UA')} шт.</strong><small>${escapeHtml(order.priceType)}</small></div>
+                          <div><span>Сума</span><strong>${formatMoney(order.total)}</strong><small>${formatMoney(order.unitPrice)} / шт.</small></div>
+                        </div>
+                        ${order.company || order.comment ? `<p class="order-card__comment">${escapeHtml(order.company)}${order.company && order.comment ? ' · ' : ''}${escapeHtml(order.comment)}</p>` : ''}
+                        <time datetime="${order.createdAt}">${new Date(order.createdAt).toLocaleString('uk-UA')}</time>
+                      </article>
+                    `,
+                  )
+                  .join('')
+              : '<div class="empty-state"><h3>Заявок ще немає.</h3><p>Створіть тестову заявку на головній сторінці.</p></div>'
+          }
+        </div>
+      </section>
+      <section class="admin-section">
+        <div class="admin-section__head"><h2>Клієнти й фіксовані ціни</h2><span>Максимум +0,99 грн до базової</span></div>
+        <div class="clients-table">
+          <div class="clients-table__head"><span>Клієнт</span><span>Статус</span><span>Фіксована націнка</span></div>
+          ${clients
+            .map(
+              (client) => `
+                <div class="client-row">
+                  <div><strong>${escapeHtml(client.name)}</strong><span>${escapeHtml(client.company || client.email)}</span><a href="tel:${escapeHtml(client.phone)}">${escapeHtml(client.phone)}</a></div>
+                  <label class="partner-toggle"><input type="checkbox" data-partner-toggle="${client.id}"${client.partner ? ' checked' : ''} /><span>${client.partner ? 'Постійний' : 'Новий'}</span></label>
+                  <label class="markup-control"><input class="input" type="number" min="0" max="0.99" step="0.01" value="${client.fixedMarkup.toFixed(2)}" data-partner-markup="${client.id}"${client.partner ? '' : ' disabled'} /><span>грн</span></label>
+                </div>
+              `,
+            )
+            .join('')}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function syncRoute(): void {
+  const adminPage = document.querySelector<HTMLElement>('#admin-page');
+  const storefront = document.querySelector<HTMLElement>('#main');
+  const header = document.querySelector<HTMLElement>('.site-header');
+  const footer = document.querySelector<HTMLElement>('.site-footer');
+  const strip = document.querySelector<HTMLElement>('.demo-strip');
+  const showAdmin = window.location.hash === '#admin';
+  if (adminPage) adminPage.hidden = !showAdmin;
+  if (storefront) storefront.hidden = showAdmin;
+  if (header) header.hidden = showAdmin;
+  if (footer) footer.hidden = showAdmin;
+  if (strip) strip.hidden = showAdmin;
+  document.body.classList.toggle('is-admin', showAdmin);
+  if (showAdmin) {
+    renderAdmin();
+    window.scrollTo({ top: 0 });
+  }
+}
+
+function initializeRevealAnimations(): void {
+  const items = document.querySelectorAll<HTMLElement>('.reveal');
+  if (!('IntersectionObserver' in window)) {
+    items.forEach((item) => item.classList.add('is-visible'));
+    return;
+  }
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          (entry.target as HTMLElement).classList.add('is-visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    },
+    { threshold: 0.12 },
+  );
+  items.forEach((item) => observer.observe(item));
+}
+
+document.querySelector<HTMLButtonElement>('#menu-button')?.addEventListener('click', (event) => {
+  const button = event.currentTarget as HTMLButtonElement;
+  const nav = document.querySelector<HTMLElement>('#site-nav');
+  const open = button.getAttribute('aria-expanded') !== 'true';
+  button.setAttribute('aria-expanded', String(open));
+  nav?.classList.toggle('is-open', open);
+});
+
+document.querySelectorAll<HTMLAnchorElement>('.site-nav a').forEach((link) => {
+  link.addEventListener('click', () => {
+    document.querySelector<HTMLElement>('#site-nav')?.classList.remove('is-open');
+    document.querySelector<HTMLButtonElement>('#menu-button')?.setAttribute('aria-expanded', 'false');
+  });
+});
+
+document.querySelector<HTMLFormElement>('#fit-form')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const form = event.currentTarget as HTMLFormElement;
+  const message = document.querySelector<HTMLParagraphElement>('#fit-message');
+  if (!form.reportValidity()) {
+    if (message) {
+      message.textContent = 'Вкажіть три додатні розміри.';
+      message.className = 'form-message is-error';
+    }
+    return;
+  }
+  const data = new FormData(form);
+  fitDimensions = {
+    length: Number(data.get('length')),
+    width: Number(data.get('width')),
+    height: Number(data.get('height')),
+  };
+  if (message) {
+    message.textContent = 'Розміри застосовано. Показуємо коробки нижче.';
+    message.className = 'form-message is-success';
+  }
+  queueCatalogRender();
+  window.setTimeout(() => document.querySelector('#catalog')?.scrollIntoView({ behavior: 'smooth' }), 180);
+});
+
+document.querySelector<HTMLInputElement>('#catalog-search')?.addEventListener('input', (event) => {
+  catalogSearch = (event.currentTarget as HTMLInputElement).value;
+  queueCatalogRender();
+});
+
+document.querySelector<HTMLSelectElement>('#catalog-sort')?.addEventListener('change', (event) => {
+  catalogSort = (event.currentTarget as HTMLSelectElement).value as CatalogSort;
+  queueCatalogRender();
+});
+
+document.querySelector<HTMLButtonElement>('#reset-catalog')?.addEventListener('click', () => {
+  fitDimensions = null;
+  catalogSearch = '';
+  const search = document.querySelector<HTMLInputElement>('#catalog-search');
+  if (search) search.value = '';
+  const message = document.querySelector<HTMLParagraphElement>('#fit-message');
+  if (message) message.textContent = '';
+  queueCatalogRender();
+});
+
+document.querySelector<HTMLSelectElement>('#calculator-product-select')?.addEventListener('change', (event) => {
+  selectProduct((event.currentTarget as HTMLSelectElement).value);
+});
+
+document.querySelector<HTMLSelectElement>('#hero-product-select')?.addEventListener('change', (event) => {
+  selectProduct((event.currentTarget as HTMLSelectElement).value);
+});
+
+document.querySelector<HTMLInputElement>('#quantity-input')?.addEventListener('input', (event) => {
+  setQuantity(Number((event.currentTarget as HTMLInputElement).value));
+});
+
+document.querySelector<HTMLInputElement>('#hero-quantity-input')?.addEventListener('input', (event) => {
+  setQuantity(Number((event.currentTarget as HTMLInputElement).value));
+});
+
+document.querySelector<HTMLInputElement>('#quantity-range')?.addEventListener('input', (event) => {
+  setQuantity(Number((event.currentTarget as HTMLInputElement).value));
+});
+
+document.querySelector<HTMLFormElement>('#request-form')?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  submitRequest(event.currentTarget as HTMLFormElement);
+});
+
+document.addEventListener('click', (event) => {
+  const target = event.target as HTMLElement;
+  const productButton = target.closest<HTMLButtonElement>('[data-select-product]');
+  if (productButton?.dataset.selectProduct) {
+    selectProduct(productButton.dataset.selectProduct, true);
+    return;
+  }
+
+  const preset = target.closest<HTMLButtonElement>('[data-quantity]');
+  if (preset?.dataset.quantity) {
+    setQuantity(Number(preset.dataset.quantity));
+    return;
+  }
+
+  const step = target.closest<HTMLButtonElement>('[data-quantity-step]');
+  if (step?.dataset.quantityStep) {
+    setQuantity(selectedQuantity + Number(step.dataset.quantityStep));
+    return;
+  }
+
+  if (target.closest('#account-button') || target.closest('#business-account-button')) {
+    openAccountDialog();
+    return;
+  }
+
+  if (target.closest('[data-close-dialog]')) {
+    const dialog = target.closest<HTMLDialogElement>('dialog') ?? document.querySelector<HTMLDialogElement>('#account-dialog');
+    dialog?.close();
+    return;
+  }
+
+  const authTab = target.closest<HTMLButtonElement>('[data-auth-tab]');
+  if (authTab?.dataset.authTab) {
+    const container = authTab.closest('.auth-forms');
+    container?.querySelectorAll<HTMLButtonElement>('[data-auth-tab]').forEach((button) => {
+      const active = button.dataset.authTab === authTab.dataset.authTab;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-selected', String(active));
+    });
+    container?.querySelectorAll<HTMLElement>('[data-auth-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.authPanel !== authTab.dataset.authTab;
+    });
+    return;
+  }
+
+  if (target.closest('#logout-button')) {
+    localStorage.removeItem(STORAGE.session);
+    renderAccountButton();
+    renderCalculator();
+    renderCatalog(false);
+    openAccountDialog();
+    return;
+  }
+
+  if (target.closest('#admin-logout')) {
+    localStorage.removeItem(STORAGE.session);
+    renderAccountButton();
+    renderCalculator();
+    renderCatalog(false);
+    renderAdmin();
+  }
+});
+
+document.addEventListener('submit', (event) => {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement)) return;
+  if (form.id === 'login-form') {
+    event.preventDefault();
+    handleLogin(form);
+  } else if (form.id === 'register-form') {
+    event.preventDefault();
+    handleRegister(form);
+  } else if (form.id === 'admin-login-form') {
+    event.preventDefault();
+    handleLogin(form, true);
+  }
+});
+
+document.addEventListener('change', (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+
+  if (target instanceof HTMLSelectElement && target.dataset.orderStatus) {
+    const storedOrders = orders();
+    const order = storedOrders.find((item) => item.id === target.dataset.orderStatus);
+    if (order) {
+      order.status = target.value as OrderStatus;
+      writeStorage(STORAGE.orders, storedOrders);
+      renderAdmin();
+    }
+    return;
+  }
+
+  if (target instanceof HTMLInputElement && target.dataset.partnerToggle) {
+    const storedAccounts = accounts();
+    const account = storedAccounts.find((item) => item.id === target.dataset.partnerToggle);
+    if (account) {
+      account.partner = target.checked;
+      writeStorage(STORAGE.accounts, storedAccounts);
+      renderAdmin();
+    }
+    return;
+  }
+
+  if (target instanceof HTMLInputElement && target.dataset.partnerMarkup) {
+    const storedAccounts = accounts();
+    const account = storedAccounts.find((item) => item.id === target.dataset.partnerMarkup);
+    if (account) {
+      account.fixedMarkup = Math.min(0.99, Math.max(0, Number(target.value) || 0));
+      writeStorage(STORAGE.accounts, storedAccounts);
+      renderAdmin();
+    }
+  }
+});
+
+document.querySelector<HTMLDialogElement>('#account-dialog')?.addEventListener('click', (event) => {
+  if (event.target === event.currentTarget) (event.currentTarget as HTMLDialogElement).close();
+});
+
+window.addEventListener('hashchange', syncRoute);
+
+renderCatalog(true);
+window.setTimeout(() => renderCatalog(false), 460);
+renderCalculator();
+renderAccountButton();
+syncRoute();
+initializeRevealAnimations();
