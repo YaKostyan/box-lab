@@ -322,28 +322,6 @@ function storefrontTemplate(): string {
         </div>
       </section>
 
-      <section class="section principles-section" aria-labelledby="principles-title">
-        <div class="principles-intro reveal">
-          <p class="eyebrow"><span></span> Як ми працюємо</p>
-          <h2 id="principles-title">Без зайвих умов. <em>Без прихованих цифр.</em></h2>
-          <p>Сервіс і коробки побудовані навколо чотирьох простих речей.</p>
-        </div>
-        <div class="principles-list">
-          <article class="principle reveal">
-            <span>01</span><div><h3>Зручність</h3><p>Розмір, кількість і ціна — в одному зрозумілому сценарії.</p></div>
-          </article>
-          <article class="principle reveal">
-            <span>02</span><div><h3>Прозорість</h3><p>Відразу показуємо ціну за штуку та весь тираж.</p></div>
-          </article>
-          <article class="principle reveal">
-            <span>03</span><div><h3>Простота</h3><p>Жодних категорій і складних термінів — тільки точні розміри.</p></div>
-          </article>
-          <article class="principle reveal">
-            <span>04</span><div><h3>Якість</h3><p>Один перевірений матеріал і зрозумілий результат.</p></div>
-          </article>
-        </div>
-      </section>
-
       <section class="section fit-section" id="fit">
         <div class="section-heading reveal">
           <div>
