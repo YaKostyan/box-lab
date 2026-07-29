@@ -4,15 +4,12 @@ import {
   faqItems,
   fitsWithRotation,
   formatMoney,
-  MATERIAL,
   MAX_QUANTITY,
   productVolume,
   products,
   publicUnitPrice,
-  RETAIL_MARKUP,
   unitPrice,
   WHOLESALE_FROM,
-  WHOLESALE_MARKUP,
   type Dimensions,
   type Product,
 } from './data';
@@ -40,6 +37,13 @@ interface Order {
   phone: string;
   company: string;
   comment: string;
+  items: OrderItem[];
+  total: number;
+  accountId?: string;
+  status: OrderStatus;
+}
+
+interface OrderItem {
   productId: string;
   productNumber: string;
   dimensions: Dimensions;
@@ -47,18 +51,24 @@ interface Order {
   unitPrice: number;
   total: number;
   priceType: string;
-  accountId?: string;
-  status: OrderStatus;
+}
+
+interface LegacyOrder extends Omit<Order, 'items'>, OrderItem {}
+
+interface CartItem {
+  productId: string;
+  quantity: number;
 }
 
 const STORAGE = {
-  accounts: 'toffipacks-demo-accounts-v2',
-  orders: 'toffipacks-demo-orders-v2',
-  session: 'toffipacks-demo-session-v2',
+  accounts: 'toffipacks-accounts-v3',
+  orders: 'toffipacks-orders-v3',
+  session: 'toffipacks-session-v3',
+  cart: 'toffipacks-cart-v1',
 };
 
 const now = new Date().toISOString();
-const demoAccounts: Account[] = [
+const seedAccounts: Account[] = [
   {
     id: 'account-admin',
     name: 'Адміністратор ToffiPacks',
@@ -74,7 +84,7 @@ const demoAccounts: Account[] = [
     id: 'account-partner',
     name: 'Постійний клієнт',
     phone: '+380671112233',
-    company: 'Demo Coffee',
+    company: '',
     password: 'client123',
     role: 'client',
     partner: true,
@@ -83,25 +93,7 @@ const demoAccounts: Account[] = [
   },
 ];
 
-const demoOrders: Order[] = [
-  {
-    id: 'TP-DEMO-001',
-    createdAt: now,
-    customerName: 'Олена',
-    phone: '+380671112233',
-    company: 'Demo Coffee',
-    comment: 'Потрібно уточнити строк виготовлення.',
-    productId: 'box-101',
-    productNumber: '101',
-    dimensions: { length: 178, width: 115, height: 48 },
-    quantity: 1200,
-    unitPrice: 4.5,
-    total: 5400,
-    priceType: 'Фіксована ціна клієнта',
-    accountId: 'account-partner',
-    status: 'Нова',
-  },
-];
+const seedOrders: Order[] = [];
 
 function readStorage<T>(key: string, fallback: T): T {
   try {
@@ -116,12 +108,13 @@ function writeStorage<T>(key: string, value: T): void {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-function initializeDemoStorage(): void {
-  if (!localStorage.getItem(STORAGE.accounts)) writeStorage(STORAGE.accounts, demoAccounts);
-  if (!localStorage.getItem(STORAGE.orders)) writeStorage(STORAGE.orders, demoOrders);
+function initializeStorage(): void {
+  if (!localStorage.getItem(STORAGE.accounts)) writeStorage(STORAGE.accounts, seedAccounts);
+  if (!localStorage.getItem(STORAGE.orders)) writeStorage(STORAGE.orders, seedOrders);
+  if (!localStorage.getItem(STORAGE.cart)) writeStorage(STORAGE.cart, []);
 }
 
-initializeDemoStorage();
+initializeStorage();
 
 let selectedProductId = 'box-101';
 let selectedQuantity = 500;
@@ -135,11 +128,43 @@ const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('Root element #app was not found.');
 
 function accounts(): Account[] {
-  return readStorage<Account[]>(STORAGE.accounts, demoAccounts);
+  return readStorage<Account[]>(STORAGE.accounts, seedAccounts);
 }
 
 function orders(): Order[] {
-  return readStorage<Order[]>(STORAGE.orders, demoOrders);
+  const stored = readStorage<Array<Order | LegacyOrder>>(STORAGE.orders, seedOrders);
+  return stored.map((order) => {
+    if ('items' in order && Array.isArray(order.items)) return order;
+    const legacy = order as LegacyOrder;
+    return {
+      id: legacy.id,
+      createdAt: legacy.createdAt,
+      customerName: legacy.customerName,
+      phone: legacy.phone,
+      company: legacy.company,
+      comment: legacy.comment,
+      items: [
+        {
+          productId: legacy.productId,
+          productNumber: legacy.productNumber,
+          dimensions: legacy.dimensions,
+          quantity: legacy.quantity,
+          unitPrice: legacy.unitPrice,
+          total: legacy.total,
+          priceType: legacy.priceType,
+        },
+      ],
+      total: legacy.total,
+      accountId: legacy.accountId,
+      status: legacy.status,
+    };
+  });
+}
+
+function cartItems(): CartItem[] {
+  return readStorage<CartItem[]>(STORAGE.cart, []).filter(
+    (item) => products.some((product) => product.id === item.productId) && item.quantity > 0,
+  );
 }
 
 function currentAccount(): Account | null {
@@ -177,6 +202,15 @@ function escapeHtml(value: string): string {
 
 function dimensionText(dimensions: Dimensions): string {
   return `${dimensions.length} × ${dimensions.width} × ${dimensions.height} мм`;
+}
+
+function positionLabel(count: number): string {
+  const lastTwo = count % 100;
+  const last = count % 10;
+  if (lastTwo >= 11 && lastTwo <= 14) return `${count} позицій`;
+  if (last === 1) return `${count} позиція`;
+  if (last >= 2 && last <= 4) return `${count} позиції`;
+  return `${count} позицій`;
 }
 
 function priceTypeLabel(quantity: number, account: Account | null): string {
@@ -242,11 +276,6 @@ function productOptions(): string {
 function storefrontTemplate(): string {
   const product = selectedProduct();
   return `
-    <div class="demo-strip" role="note">
-      <span>Демо-прототип</span>
-      <p>Акаунти та заявки зберігаються лише у цьому браузері. Реальної відправки немає.</p>
-    </div>
-
     <header class="site-header" id="top">
       <a class="brand" href="#top" aria-label="ToffiPacks — на головну">
         <span class="brand__mark"><img src="./toffipacks-logo.webp" alt="" /></span>
@@ -260,7 +289,7 @@ function storefrontTemplate(): string {
       </nav>
       <div class="header-actions">
         <a class="button button--ghost button--small" id="account-button" href="#account">Кабінет</a>
-        <a class="button button--primary button--small" href="#request">Залишити заявку</a>
+        <a class="button button--primary button--small cart-button" id="cart-button" href="#request">Кошик <span id="cart-count">0</span></a>
         <button class="menu-button" id="menu-button" type="button" aria-expanded="false" aria-controls="site-nav">
           <span></span><span></span><span></span><span class="sr-only">Меню</span>
         </button>
@@ -283,7 +312,7 @@ function storefrontTemplate(): string {
           <dl class="hero__facts">
             <div><dt>12</dt><dd>розмірів у прайсі</dd></div>
             <div><dt>1–50 000</dt><dd>діапазон калькулятора</dd></div>
-            <div><dt>${escapeHtml(MATERIAL)}</dt><dd>один матеріал</dd></div>
+            <div><dt>Одразу</dt><dd>кінцева вартість</dd></div>
           </dl>
         </div>
 
@@ -294,7 +323,7 @@ function storefrontTemplate(): string {
               <img src="./toffipacks-logo.webp" alt="Логотип ToffiPacks із деревом у відбитку лапи" />
             </div>
             <div class="logo-stage__note">
-              <span class="technical-label">TOFFIPACKS / 2026</span>
+              <span class="technical-label">Коробки за розміром</span>
               <strong>Просто обрати.<br />Легко порахувати.</strong>
             </div>
           </div>
@@ -303,7 +332,7 @@ function storefrontTemplate(): string {
         <div class="hero-calculator reveal" aria-label="Швидкий розрахунок">
           <div class="hero-calculator__head">
             <span class="technical-label">Швидкий розрахунок</span>
-            <span class="price-rule">1–999: +${RETAIL_MARKUP} грн · ${WHOLESALE_FROM}+: +${WHOLESALE_MARKUP} грн</span>
+            <span class="price-rule">Кінцева ціна за весь тираж</span>
           </div>
           <label class="field">
             <span>Коробка</span>
@@ -366,16 +395,16 @@ function storefrontTemplate(): string {
       <section class="section catalog-section" id="catalog">
         <div class="section-heading reveal">
           <div>
-            <p class="eyebrow"><span></span> 12 позицій із прайса</p>
+            <p class="eyebrow"><span></span> 12 готових розмірів</p>
             <h2>Оберіть розмір,<br />не призначення.</h2>
           </div>
-          <p>Усі картки побудовані за наданим прайсом ToffiPacks. Базові дані не вигадані.</p>
+          <p>Порівняйте внутрішні габарити та одразу порахуйте потрібну кількість.</p>
         </div>
         <div class="catalog-toolbar reveal">
           <label class="search-field">
             <span class="sr-only">Пошук</span>
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m16 16 4 4"></path></svg>
-            <input id="catalog-search" type="search" placeholder="Номер, артикул або розмір" autocomplete="off" />
+            <input id="catalog-search" type="search" placeholder="Номер або розмір" autocomplete="off" />
           </label>
           <label class="sort-field">
             <span>Сортувати</span>
@@ -389,7 +418,6 @@ function storefrontTemplate(): string {
         </div>
         <div class="catalog-meta">
           <p id="catalog-count" aria-live="polite"></p>
-          <p class="source-note">Джерело: Price_List_ToffiPacks-v3.xlsx</p>
         </div>
         <div class="product-grid" id="product-grid" aria-live="polite"></div>
       </section>
@@ -400,19 +428,19 @@ function storefrontTemplate(): string {
             <p class="eyebrow eyebrow--light"><span></span> Калькулятор тиражу</p>
             <h2>Від однієї коробки<br />до 50 тисяч.</h2>
             <p>
-              Ціна змінюється рівно один раз — на 1000 штук. Для підтверджених
-              постійних клієнтів застосовується фіксована персональна ціна.
+              Вкажіть кількість і відразу побачите кінцеву ціну за одну коробку
+              та загальну вартість тиражу.
             </p>
             <div class="price-logic">
-              <div><span>1–999 шт.</span><strong>прайс + 2 грн</strong></div>
-              <div><span>1 000–50 000 шт.</span><strong>прайс + 1 грн</strong></div>
-              <div><span>Постійний клієнт</span><strong>фіксована ціна</strong></div>
+              <div><span>1–999 шт.</span><strong>роздрібна ціна</strong></div>
+              <div><span>1 000–50 000 шт.</span><strong>оптова ціна</strong></div>
+              <div><span>Постійним клієнтам</span><strong>персональна ціна</strong></div>
             </div>
           </div>
 
           <div class="calculator-card">
             <div class="calculator-card__top">
-              <span class="technical-label">Розрахунок / live</span>
+              <span class="technical-label">Розрахунок</span>
               <span class="account-price-badge" id="account-price-badge">Публічна ціна</span>
             </div>
             <label class="field">
@@ -431,9 +459,9 @@ function storefrontTemplate(): string {
                 <button type="button" data-quantity-step="100" aria-label="Збільшити кількість на 100">+</button>
               </div>
               <div class="quantity-guide" aria-label="Правила ціни">
-                <span><b>1–999</b><small>прайс + 2 грн</small></span>
+                <span><b>1–999</b><small>роздрібна ціна</small></span>
                 <i aria-hidden="true"></i>
-                <span><b>від 1 000</b><small>прайс + 1 грн</small></span>
+                <span><b>від 1 000</b><small>оптова ціна</small></span>
               </div>
               <div class="quantity-presets" aria-label="Швидкий вибір кількості">
                 ${[100, 500, 1000, 5000, 10000, 50000].map((value) => `<button type="button" data-quantity="${value}">${value.toLocaleString('uk-UA')}</button>`).join('')}
@@ -450,7 +478,7 @@ function storefrontTemplate(): string {
               </div>
             </div>
             <div class="threshold-note" id="threshold-note"></div>
-            <a class="button button--gold button--wide" href="#request">Перенести в заявку</a>
+            <button class="button button--gold button--wide" type="button" data-add-selected-to-cart>Додати до кошика</button>
           </div>
         </div>
       </section>
@@ -467,12 +495,12 @@ function storefrontTemplate(): string {
           <article class="business-card reveal">
             <span class="business-card__number">01</span>
             <h3>Реєстрація</h3>
-            <p>Клієнт створює кабінет із контактами компанії. Новий профіль одразу видно в локальній демо-адмінці.</p>
+            <p>Створіть кабінет за номером телефону, щоб зберігати заявки та бачити свої умови.</p>
           </article>
           <article class="business-card reveal">
             <span class="business-card__number">02</span>
             <h3>Підтвердження</h3>
-            <p>Менеджер позначає клієнта як постійного та задає фіксовану націнку нижче публічної оптової.</p>
+            <p>Менеджер підтверджує профіль і активує персональні умови для постійних замовлень.</p>
           </article>
           <article class="business-card business-card--accent reveal">
             <span class="business-card__number">03</span>
@@ -485,22 +513,18 @@ function storefrontTemplate(): string {
 
       <section class="section request-section" id="request">
         <div class="request-copy reveal">
-          <p class="eyebrow"><span></span> Заявка на замовлення</p>
-          <h2>Залиште номер —<br />менеджер уточнить деталі.</h2>
+          <p class="eyebrow"><span></span> Кошик</p>
+          <h2>Усі потрібні коробки<br />в одному замовленні.</h2>
           <p>
-            Тут немає вигаданих телефонів ToffiPacks. Клієнт залишає свої контакти,
-            а заявка з’являється в демо-адмінці.
+            Додавайте різні розміри, задавайте кількість для кожної позиції
+            та одразу бачте загальну вартість.
           </p>
-          <div class="request-summary" id="request-summary"></div>
-          <div class="local-warning">
-            <strong>Важливо</strong>
-            <p>На GitHub Pages дані не передаються власнику. Вони зберігаються локально для демонстрації сценарію.</p>
-          </div>
+          <div class="cart-summary" id="request-summary" aria-live="polite"></div>
         </div>
         <form class="request-form reveal" id="request-form" novalidate>
           <div class="request-form__head">
-            <span class="technical-label">Нова заявка</span>
-            <span id="request-account-hint">Без акаунта</span>
+            <span class="technical-label">Контактні дані</span>
+            <span id="request-account-hint">Гість</span>
           </div>
           <div class="form-grid">
             <label class="field">
@@ -522,20 +546,20 @@ function storefrontTemplate(): string {
           </label>
           <label class="checkbox">
             <input name="consent" type="checkbox" required />
-            <span>Погоджуюся на локальну обробку введених даних у цьому демо *</span>
+            <span>Погоджуюся на обробку введених даних *</span>
           </label>
           <div class="form-status" id="request-status" aria-live="polite"></div>
           <button class="button button--primary button--wide" type="submit">
-            Зберегти демо-заявку
+            Створити заявку
           </button>
         </form>
       </section>
 
       <section class="section faq-section" id="faq">
         <div class="faq-intro reveal">
-          <p class="eyebrow"><span></span> FAQ / 06</p>
+          <p class="eyebrow"><span></span> FAQ</p>
           <h2>Коротко про ціни,<br />розміри й акаунти.</h2>
-          <p>Тільки те, що вже визначено прайсом і логікою прототипу.</p>
+          <p>Відповіді на основні питання перед замовленням.</p>
         </div>
         <div class="faq-list reveal">
           ${faqItems
@@ -560,12 +584,12 @@ function storefrontTemplate(): string {
       <div class="footer-links">
         <a href="#catalog">Розміри</a>
         <a href="#calculator">Ціни</a>
-        <a href="#request">Заявка</a>
-        <a href="#admin">Демо-адмінка</a>
+        <a href="#request">Кошик</a>
+        <a href="#account">Кабінет</a>
       </div>
       <div class="footer-meta">
-        <p>Контакти, умови доставки та строки потрібні від власника.</p>
-        <span>© 2026 ToffiPacks · demo</span>
+        <p>Самозбірні коробки за точним внутрішнім розміром.</p>
+        <span>© 2026 ToffiPacks</span>
       </div>
     </footer>
 
@@ -573,7 +597,7 @@ function storefrontTemplate(): string {
       <header class="admin-header">
         <a class="brand" href="#top">
           <span class="brand__mark"><img src="./toffipacks-logo.webp" alt="" /></span>
-          <span class="brand__copy"><strong>TOFFIPACKS</strong><small>локальна демо-адмінка</small></span>
+          <span class="brand__copy"><strong>TOFFIPACKS</strong><small>кабінет менеджера</small></span>
         </a>
         <a class="button button--ghost button--small" href="#top">Повернутися на сайт</a>
       </header>
@@ -617,15 +641,11 @@ function productCard(product: Product): string {
       aria-label="Відкрити коробку №${product.number}, ${dimensionText(product.dimensions)}"
     >
       <div class="product-card__head">
-        <div>
-          <span class="product-card__number">№${product.number}</span>
-          <span class="product-card__sku">${escapeHtml(product.sku)}</span>
-        </div>
-        <span class="material-dot" title="${escapeHtml(MATERIAL)}"></span>
+        <span class="product-card__number">№${product.number}</span>
+        <span class="product-card__size-label">внутрішній розмір</span>
       </div>
       <div class="product-card__visual">${boxDiagram(product, true)}</div>
       <h3>${dimensionText(product.dimensions)}</h3>
-      <p>${escapeHtml(MATERIAL)}</p>
       <div class="product-card__prices">
         ${
           partner !== null
@@ -637,7 +657,7 @@ function productCard(product: Product): string {
         }
       </div>
       <button class="button button--card" type="button" data-open-product="${product.id}">
-        ${product.id === selectedProductId ? 'Відкрити обрану коробку' : 'Детальніше й розрахувати'}
+        Детальніше
       </button>
     </article>
   `;
@@ -652,15 +672,13 @@ function productDialogContent(product: Product): string {
       <div class="product-modal__visual">
         <div class="product-modal__labels">
           <span>№${product.number}</span>
-          <small>${escapeHtml(product.sku)}</small>
         </div>
         <div class="product-modal__drawing">${boxDiagram(product, true)}</div>
         <p>Внутрішній розмір · Д × Ш × В</p>
       </div>
       <div class="product-modal__content">
-        <p class="eyebrow"><span></span> Коробка з прайса</p>
+        <p class="eyebrow"><span></span> Внутрішній розмір</p>
         <h2 id="product-dialog-title">${dimensionText(product.dimensions)}</h2>
-        <p class="product-modal__material">${escapeHtml(MATERIAL)}</p>
 
         <div class="product-modal__rules">
           <div><span>1–999 шт.</span><strong>${formatMoney(publicUnitPrice(product, 1))} / шт.</strong></div>
@@ -688,7 +706,7 @@ function productDialogContent(product: Product): string {
         </div>
 
         <div class="product-modal__actions">
-          <button class="button button--primary" type="button" data-product-to-request>Перенести в заявку</button>
+          <button class="button button--primary" type="button" data-product-to-cart>Додати до кошика</button>
           <button class="button button--ghost" type="button" data-product-to-calculator>Відкрити калькулятор</button>
         </div>
       </div>
@@ -734,7 +752,7 @@ function openProductDialog(productId: string): void {
 function filteredProducts(): Product[] {
   const normalizedSearch = catalogSearch.trim().toLocaleLowerCase('uk-UA');
   const result = products.filter((product) => {
-    const searchable = `${product.number} ${product.sku} ${product.name} ${dimensionText(product.dimensions)}`.toLocaleLowerCase('uk-UA');
+    const searchable = `${product.number} ${product.name} ${dimensionText(product.dimensions)}`.toLocaleLowerCase('uk-UA');
     const matchesSearch = !normalizedSearch || searchable.includes(normalizedSearch);
     const matchesDimensions = !fitDimensions || fitsWithRotation(fitDimensions, product.dimensions);
     return matchesSearch && matchesDimensions;
@@ -839,18 +857,10 @@ function renderCalculator(): void {
     }
   }
 
-  const summary = document.querySelector<HTMLDivElement>('#request-summary');
-  if (summary) {
-    summary.innerHTML = `
-      <span class="technical-label">Поточний розрахунок</span>
-      <strong>Коробка №${product.number}</strong>
-      <p>${dimensionText(product.dimensions)} · ${selectedQuantity.toLocaleString('uk-UA')} шт.</p>
-      <div><span>${tier}</span><b>${formatMoney(total)}</b></div>
-    `;
-  }
   document.querySelectorAll<HTMLButtonElement>('[data-quantity]').forEach((button) => {
     button.classList.toggle('is-active', Number(button.dataset.quantity) === selectedQuantity);
   });
+  renderCart();
   updateProductDialog();
 }
 
@@ -869,6 +879,100 @@ function setQuantity(value: number): void {
   renderCalculator();
 }
 
+function addToCart(productId: string, quantity: number): void {
+  if (!products.some((product) => product.id === productId)) return;
+  const storedCart = cartItems();
+  const existing = storedCart.find((item) => item.productId === productId);
+  if (existing) existing.quantity = clampQuantity(quantity);
+  else storedCart.push({ productId, quantity: clampQuantity(quantity) });
+  writeStorage(STORAGE.cart, storedCart);
+  renderCart();
+
+  const cartButton = document.querySelector<HTMLElement>('#cart-button');
+  cartButton?.classList.remove('is-updated');
+  void cartButton?.offsetWidth;
+  cartButton?.classList.add('is-updated');
+}
+
+function updateCartQuantity(productId: string, quantity: number): void {
+  const storedCart = cartItems();
+  const item = storedCart.find((candidate) => candidate.productId === productId);
+  if (!item) return;
+  item.quantity = clampQuantity(quantity);
+  writeStorage(STORAGE.cart, storedCart);
+  renderCart();
+}
+
+function removeFromCart(productId: string): void {
+  writeStorage(
+    STORAGE.cart,
+    cartItems().filter((item) => item.productId !== productId),
+  );
+  renderCart();
+}
+
+function renderCart(): void {
+  const container = document.querySelector<HTMLDivElement>('#request-summary');
+  const count = document.querySelector<HTMLElement>('#cart-count');
+  const submit = document.querySelector<HTMLButtonElement>('#request-form button[type="submit"]');
+  const storedCart = cartItems();
+  const account = currentAccount();
+
+  if (count) count.textContent = String(storedCart.length);
+  if (submit) submit.disabled = storedCart.length === 0;
+  if (!container) return;
+
+  if (!storedCart.length) {
+    container.innerHTML = `
+      <div class="cart-empty">
+        <span aria-hidden="true">□</span>
+        <strong>Кошик порожній</strong>
+        <p>Оберіть розмір і додайте потрібну кількість коробок.</p>
+        <a class="button button--ghost button--small" href="#catalog">Обрати коробки</a>
+      </div>
+    `;
+    return;
+  }
+
+  let cartTotal = 0;
+  const itemsMarkup = storedCart
+    .map((item) => {
+      const product = products.find((candidate) => candidate.id === item.productId);
+      if (!product) return '';
+      const price = unitPrice(product, item.quantity, account);
+      const lineTotal = price * item.quantity;
+      cartTotal += lineTotal;
+      return `
+        <article class="cart-item">
+          <div class="cart-item__index">№${product.number}</div>
+          <div class="cart-item__info">
+            <strong>${dimensionText(product.dimensions)}</strong>
+            <span>${formatMoney(price)} / шт.</span>
+          </div>
+          <label class="cart-item__quantity">
+            <span>Кількість</span>
+            <input class="input" type="number" min="1" max="${MAX_QUANTITY}" value="${item.quantity}" data-cart-quantity="${product.id}" />
+          </label>
+          <div class="cart-item__total">
+            <span>Сума</span>
+            <strong>${formatMoney(lineTotal)}</strong>
+          </div>
+          <button class="cart-item__remove" type="button" data-remove-cart="${product.id}" aria-label="Прибрати коробку №${product.number} з кошика">×</button>
+        </article>
+      `;
+    })
+    .join('');
+
+  container.innerHTML = `
+    <div class="cart-list">${itemsMarkup}</div>
+    <div class="cart-summary__total">
+      <span>${positionLabel(storedCart.length)}</span>
+      <div><small>Загальна вартість</small><strong>${formatMoney(cartTotal)}</strong></div>
+    </div>
+    <a class="cart-continue" href="#catalog">+ Додати ще один розмір</a>
+  `;
+}
+
 function renderAccountButton(): void {
   const button = document.querySelector<HTMLAnchorElement>('#account-button');
   const account = currentAccount();
@@ -877,7 +981,7 @@ function renderAccountButton(): void {
   button.classList.toggle('is-signed-in', Boolean(account));
 
   const hint = document.querySelector<HTMLElement>('#request-account-hint');
-  if (hint) hint.textContent = account ? `${account.name}${account.partner ? ' · партнер' : ''}` : 'Без акаунта';
+  if (hint) hint.textContent = account ? account.name : 'Гість';
 
   const form = document.querySelector<HTMLFormElement>('#request-form');
   if (form && account) {
@@ -889,6 +993,7 @@ function renderAccountButton(): void {
     setValue('phone', account.phone);
     setValue('company', account.company);
   }
+  renderCart();
 }
 
 function accountPageContent(): string {
@@ -925,16 +1030,16 @@ function accountPageContent(): string {
             <button class="account-logout" type="button" id="logout-button">Вийти</button>
           </div>
           <div class="account-price-card${account.partner ? ' is-partner' : ''}">
-            <span>Ваші умови</span>
-            <strong>${account.partner ? `Базова ціна + ${account.fixedMarkup.toFixed(2)} грн` : 'Публічний тариф'}</strong>
-            <p>${account.partner ? 'Фіксована ціна застосовується автоматично в каталозі та калькуляторі.' : 'Менеджер може активувати персональну ціну для постійного клієнта.'}</p>
+            <span>Ваші ціни</span>
+            <strong>${account.partner ? 'Персональна ціна активна' : 'Стандартні ціни'}</strong>
+            <p>${account.partner ? 'Ваша ціна вже застосована в каталозі, калькуляторі та кошику.' : 'Усі суми показані одразу в кінцевому вигляді.'}</p>
           </div>
         </section>
 
         <div class="account-kpis">
-          <article><span>Усі заявки</span><strong>${accountOrders.length}</strong><small>у цьому браузері</small></article>
+          <article><span>Усі заявки</span><strong>${accountOrders.length}</strong><small>оформлено</small></article>
           <article><span>Активні</span><strong>${activeOrders}</strong><small>потребують уваги</small></article>
-          <article><span>Сума заявок</span><strong>${formatMoney(orderTotal)}</strong><small>демонстраційний підсумок</small></article>
+          <article><span>Сума заявок</span><strong>${formatMoney(orderTotal)}</strong><small>загальна вартість</small></article>
         </div>
 
         <div class="account-dashboard__grid">
@@ -947,19 +1052,19 @@ function accountPageContent(): string {
               ${
                 accountOrders.length
                   ? accountOrders
-                      .map(
-                        (order) => `
+                      .map((order) => {
+                        const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
+                        return `
                           <article class="account-order">
                             <div class="account-order__main">
-                              <span>${escapeHtml(order.id)}</span>
-                              <strong>Коробка №${escapeHtml(order.productNumber)}</strong>
-                              <small>${dimensionText(order.dimensions)} · ${order.quantity.toLocaleString('uk-UA')} шт.</small>
+                              <strong>${positionLabel(order.items.length)}</strong>
+                              <small>${totalQuantity.toLocaleString('uk-UA')} шт. загалом</small>
                             </div>
-                            <div class="account-order__price"><strong>${formatMoney(order.total)}</strong><small>${formatMoney(order.unitPrice)} / шт.</small></div>
+                            <div class="account-order__price"><strong>${formatMoney(order.total)}</strong><small>загальна сума</small></div>
                             <div class="account-order__meta"><span>${escapeHtml(order.status)}</span><time datetime="${order.createdAt}">${new Date(order.createdAt).toLocaleDateString('uk-UA')}</time></div>
                           </article>
-                        `,
-                      )
+                        `;
+                      })
                       .join('')
                   : '<div class="account-empty"><strong>Заявок ще немає.</strong><p>Оберіть розмір, порахуйте тираж і збережіть першу заявку.</p><a class="button button--primary" href="#catalog">До каталогу</a></div>'
               }
@@ -973,7 +1078,7 @@ function accountPageContent(): string {
               <span>Коробка №${product.number}</span>
               <h3>${dimensionText(product.dimensions)}</h3>
               <div><span>${selectedQuantity.toLocaleString('uk-UA')} шт.</span><strong>${formatMoney(personalPrice * selectedQuantity)}</strong></div>
-              <a class="button button--gold button--wide" href="#calculator">Змінити розрахунок</a>
+              <button class="button button--gold button--wide" type="button" data-add-selected-to-cart>Додати до кошика</button>
             </article>
             <article class="account-profile-card">
               <div><p class="technical-label">Профіль</p><a href="#account">Дані клієнта</a></div>
@@ -996,11 +1101,6 @@ function accountPageContent(): string {
         <p class="eyebrow"><span></span> Кабінет ToffiPacks</p>
         <h1 id="account-page-title">Увійдіть за номером телефону.</h1>
         <p>Постійним клієнтам менеджер може активувати фіксовану ціну нижче публічної оптової.</p>
-        <div class="demo-access">
-          <strong>Демо-доступ</strong>
-          <p>Клієнт: +380671112233 / client123</p>
-          <p>Адмін: +380000000001 / admin123</p>
-        </div>
       </div>
       <div class="auth-forms">
         <div class="auth-tabs" role="tablist">
@@ -1056,7 +1156,7 @@ function handleLogin(form: HTMLFormElement, adminOnly = false): void {
   const formData = new FormData(form);
   const account = login(String(formData.get('phone') ?? ''), String(formData.get('password') ?? ''));
   if (!account || (adminOnly && account.role !== 'admin')) {
-    setFormStatus(form, adminOnly ? 'Потрібен демо-акаунт адміністратора.' : 'Невірний телефон або пароль.', 'error');
+    setFormStatus(form, adminOnly ? 'Потрібен акаунт менеджера.' : 'Невірний телефон або пароль.', 'error');
     return;
   }
   renderAccountButton();
@@ -1103,6 +1203,14 @@ function handleRegister(form: HTMLFormElement): void {
 
 function submitRequest(form: HTMLFormElement): void {
   const status = document.querySelector<HTMLDivElement>('#request-status');
+  const storedCart = cartItems();
+  if (!storedCart.length) {
+    if (status) {
+      status.className = 'form-status is-error';
+      status.textContent = 'Додайте хоча б одну коробку до кошика.';
+    }
+    return;
+  }
   form.classList.add('was-validated');
   if (!form.reportValidity()) {
     if (status) {
@@ -1113,9 +1221,24 @@ function submitRequest(form: HTMLFormElement): void {
   }
 
   const formData = new FormData(form);
-  const product = selectedProduct();
   const account = currentAccount();
-  const calculatedUnit = unitPrice(product, selectedQuantity, account);
+  const orderItems: OrderItem[] = storedCart.flatMap((cartItem) => {
+    const product = products.find((candidate) => candidate.id === cartItem.productId);
+    if (!product) return [];
+    const calculatedUnit = unitPrice(product, cartItem.quantity, account);
+    return [
+      {
+        productId: product.id,
+        productNumber: product.number,
+        dimensions: product.dimensions,
+        quantity: cartItem.quantity,
+        unitPrice: calculatedUnit,
+        total: calculatedUnit * cartItem.quantity,
+        priceType: priceTypeLabel(cartItem.quantity, account),
+      },
+    ];
+  });
+  const orderTotal = orderItems.reduce((sum, item) => sum + item.total, 0);
   const order: Order = {
     id: `TP-${Date.now().toString(36).toUpperCase()}`,
     createdAt: new Date().toISOString(),
@@ -1123,23 +1246,21 @@ function submitRequest(form: HTMLFormElement): void {
     phone: normalizePhone(String(formData.get('phone') ?? '')),
     company: String(formData.get('company') ?? '').trim(),
     comment: String(formData.get('comment') ?? '').trim(),
-    productId: product.id,
-    productNumber: product.number,
-    dimensions: product.dimensions,
-    quantity: selectedQuantity,
-    unitPrice: calculatedUnit,
-    total: calculatedUnit * selectedQuantity,
-    priceType: priceTypeLabel(selectedQuantity, account),
+    items: orderItems,
+    total: orderTotal,
     accountId: account?.id,
     status: 'Нова',
   };
   const storedOrders = orders();
   storedOrders.push(order);
   writeStorage(STORAGE.orders, storedOrders);
+  writeStorage(STORAGE.cart, []);
+  renderCart();
+  renderAccountPage();
 
   if (status) {
     status.className = 'form-status is-success';
-    status.innerHTML = `<strong>Заявку ${order.id} збережено локально.</strong><span>Вона вже доступна у демо-адмінці цього браузера.</span>`;
+    status.innerHTML = `<strong>Заявку створено.</strong><span>${positionLabel(order.items.length)} на суму ${formatMoney(order.total)}.</span>`;
   }
   form.querySelector<HTMLButtonElement>('button[type="submit"]')?.focus();
 }
@@ -1158,14 +1279,14 @@ function renderAdmin(): void {
   if (!account || account.role !== 'admin') {
     content.innerHTML = `
       <div class="admin-login">
-        <p class="eyebrow"><span></span> Захищений демо-розділ</p>
+        <p class="eyebrow"><span></span> Для менеджера</p>
         <h1 id="admin-title">Вхід для менеджера.</h1>
-        <p>У реальному продукті тут потрібні серверна авторизація, права доступу та база даних.</p>
+        <p>Увійдіть, щоб переглядати заявки та керувати статусами клієнтів.</p>
         <form id="admin-login-form" class="auth-form" novalidate>
-          <label class="field"><span>Телефон</span><input class="input" name="phone" type="tel" value="+380000000001" required /></label>
-          <label class="field"><span>Пароль</span><input class="input" name="password" type="password" value="admin123" required /></label>
+          <label class="field"><span>Телефон</span><input class="input" name="phone" type="tel" autocomplete="tel" required /></label>
+          <label class="field"><span>Пароль</span><input class="input" name="password" type="password" autocomplete="current-password" required /></label>
           <div class="form-status" data-auth-status aria-live="polite"></div>
-          <button class="button button--primary button--wide" type="submit">Увійти в демо-адмінку</button>
+          <button class="button button--primary button--wide" type="submit">Увійти</button>
         </form>
       </div>
     `;
@@ -1181,7 +1302,7 @@ function renderAdmin(): void {
     <div class="admin-shell">
       <div class="admin-title-row">
         <div>
-          <p class="eyebrow"><span></span> Локальна демо-адмінка</p>
+          <p class="eyebrow"><span></span> Кабінет менеджера</p>
           <h1 id="admin-title">Заявки та клієнти.</h1>
         </div>
         <div>
@@ -1189,14 +1310,11 @@ function renderAdmin(): void {
           <button class="text-link" id="admin-logout" type="button">Вийти</button>
         </div>
       </div>
-      <div class="admin-warning">
-        Це демонстрація в localStorage. Заявки з інших браузерів і пристроїв сюди не потрапляють.
-      </div>
       <div class="admin-stats">
         <article><span>Усі заявки</span><strong>${storedOrders.length}</strong></article>
         <article><span>Активні</span><strong>${openOrders}</strong></article>
         <article><span>Клієнти</span><strong>${clients.length}</strong></article>
-        <article><span>Сума демо-заявок</span><strong>${formatMoney(total)}</strong></article>
+        <article><span>Загальна сума</span><strong>${formatMoney(total)}</strong></article>
       </div>
       <section class="admin-section">
         <div class="admin-section__head"><h2>Заявки</h2><span>${storedOrders.length} записів</span></div>
@@ -1213,9 +1331,22 @@ function renderAdmin(): void {
                         </div>
                         <div class="order-card__grid">
                           <div><span>Контакт</span><a href="tel:${escapeHtml(order.phone)}">${escapeHtml(order.phone)}</a><small>Телефон клієнта</small></div>
-                          <div><span>Коробка</span><strong>№${escapeHtml(order.productNumber)}</strong><small>${dimensionText(order.dimensions)}</small></div>
-                          <div><span>Тираж</span><strong>${order.quantity.toLocaleString('uk-UA')} шт.</strong><small>${escapeHtml(order.priceType)}</small></div>
-                          <div><span>Сума</span><strong>${formatMoney(order.total)}</strong><small>${formatMoney(order.unitPrice)} / шт.</small></div>
+                          <div><span>Позицій</span><strong>${order.items.length}</strong><small>${order.items.reduce((sum, item) => sum + item.quantity, 0).toLocaleString('uk-UA')} шт. загалом</small></div>
+                          <div><span>Сума</span><strong>${formatMoney(order.total)}</strong><small>кінцева вартість</small></div>
+                        </div>
+                        <div class="order-card__items">
+                          ${order.items
+                            .map(
+                              (item) => `
+                                <div>
+                                  <span>№${escapeHtml(item.productNumber)}</span>
+                                  <strong>${dimensionText(item.dimensions)}</strong>
+                                  <small>${item.quantity.toLocaleString('uk-UA')} шт. · ${formatMoney(item.unitPrice)} / шт.</small>
+                                  <b>${formatMoney(item.total)}</b>
+                                </div>
+                              `,
+                            )
+                            .join('')}
                         </div>
                         ${order.company || order.comment ? `<p class="order-card__comment">${escapeHtml(order.company)}${order.company && order.comment ? ' · ' : ''}${escapeHtml(order.comment)}</p>` : ''}
                         <time datetime="${order.createdAt}">${new Date(order.createdAt).toLocaleString('uk-UA')}</time>
@@ -1223,21 +1354,20 @@ function renderAdmin(): void {
                     `,
                   )
                   .join('')
-              : '<div class="empty-state"><h3>Заявок ще немає.</h3><p>Створіть тестову заявку на головній сторінці.</p></div>'
+              : '<div class="empty-state"><h3>Заявок ще немає.</h3><p>Нові заявки з’являться в цьому розділі.</p></div>'
           }
         </div>
       </section>
       <section class="admin-section">
-        <div class="admin-section__head"><h2>Клієнти й фіксовані ціни</h2><span>Максимум +0,99 грн до базової</span></div>
+        <div class="admin-section__head"><h2>Клієнти</h2><span>Персональні умови</span></div>
         <div class="clients-table">
-          <div class="clients-table__head"><span>Клієнт</span><span>Статус</span><span>Фіксована націнка</span></div>
+          <div class="clients-table__head"><span>Клієнт</span><span>Персональна ціна</span></div>
           ${clients
             .map(
               (client) => `
                 <div class="client-row">
                   <div><strong>${escapeHtml(client.name)}</strong><span>${escapeHtml(client.company || 'Без компанії')}</span><a href="tel:${escapeHtml(client.phone)}">${escapeHtml(client.phone)}</a></div>
-                  <label class="partner-toggle"><input type="checkbox" data-partner-toggle="${client.id}"${client.partner ? ' checked' : ''} /><span>${client.partner ? 'Постійний' : 'Новий'}</span></label>
-                  <label class="markup-control"><input class="input" type="number" min="0" max="0.99" step="0.01" value="${client.fixedMarkup.toFixed(2)}" data-partner-markup="${client.id}"${client.partner ? '' : ' disabled'} /><span>грн</span></label>
+                  <label class="partner-toggle"><input type="checkbox" data-partner-toggle="${client.id}"${client.partner ? ' checked' : ''} /><span>${client.partner ? 'Активна' : 'Неактивна'}</span></label>
                 </div>
               `,
             )
@@ -1396,11 +1526,21 @@ document.addEventListener('click', (event) => {
     return;
   }
 
-  if (target.closest('[data-product-to-request]')) {
+  if (target.closest('[data-product-to-cart]')) {
+    addToCart(activeProductDialogId ?? selectedProductId, selectedQuantity);
     document.querySelector<HTMLDialogElement>('#product-dialog')?.close();
     activeProductDialogId = null;
-    window.location.hash = 'request';
-    document.querySelector('#request')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
+  if (target.closest('[data-add-selected-to-cart]')) {
+    addToCart(selectedProductId, selectedQuantity);
+    return;
+  }
+
+  const removeCartButton = target.closest<HTMLButtonElement>('[data-remove-cart]');
+  if (removeCartButton?.dataset.removeCart) {
+    removeFromCart(removeCartButton.dataset.removeCart);
     return;
   }
 
@@ -1484,6 +1624,11 @@ document.addEventListener('submit', (event) => {
 document.addEventListener('change', (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+
+  if (target instanceof HTMLInputElement && target.dataset.cartQuantity) {
+    updateCartQuantity(target.dataset.cartQuantity, Number(target.value));
+    return;
+  }
 
   if (target instanceof HTMLSelectElement && target.dataset.orderStatus) {
     const storedOrders = orders();

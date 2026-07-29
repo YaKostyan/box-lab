@@ -7,7 +7,6 @@ export interface Dimensions {
 export interface Product {
   id: string;
   number: string;
-  sku: string;
   name: string;
   dimensions: Dimensions;
   basePrice: number;
@@ -19,7 +18,6 @@ export interface PartnerAccount {
   fixedMarkup: number;
 }
 
-export const MATERIAL = 'Мікрогофрокартон, крафт';
 export const MAX_QUANTITY = 50_000;
 export const WHOLESALE_FROM = 1_000;
 export const RETAIL_MARKUP = 2;
@@ -30,7 +28,6 @@ export const products: Product[] = [
   {
     id: 'box-301',
     number: '301',
-    sku: 'Арт. 294',
     name: 'Самозбірна коробка №301',
     dimensions: { length: 165, width: 100, height: 30 },
     basePrice: 5,
@@ -39,7 +36,6 @@ export const products: Product[] = [
   {
     id: 'box-302',
     number: '302',
-    sku: 'Арт. 233',
     name: 'Самозбірна коробка №302',
     dimensions: { length: 130, width: 130, height: 50 },
     basePrice: 7,
@@ -48,7 +44,6 @@ export const products: Product[] = [
   {
     id: 'box-303',
     number: '303',
-    sku: 'Арт. 053',
     name: 'Самозбірна коробка №303',
     dimensions: { length: 190, width: 150, height: 100 },
     basePrice: 17,
@@ -57,7 +52,6 @@ export const products: Product[] = [
   {
     id: 'box-304',
     number: '304',
-    sku: 'Арт. 163',
     name: 'Самозбірна коробка №304',
     dimensions: { length: 230, width: 150, height: 35 },
     basePrice: 11,
@@ -66,7 +60,6 @@ export const products: Product[] = [
   {
     id: 'box-305',
     number: '305',
-    sku: 'Арт. 114',
     name: 'Самозбірна коробка №305',
     dimensions: { length: 160, width: 85, height: 110 },
     basePrice: 6.5,
@@ -74,7 +67,6 @@ export const products: Product[] = [
   {
     id: 'box-306',
     number: '306',
-    sku: 'Арт. 269',
     name: 'Самозбірна коробка №306',
     dimensions: { length: 145, width: 145, height: 40 },
     basePrice: 6.5,
@@ -83,7 +75,6 @@ export const products: Product[] = [
   {
     id: 'box-307',
     number: '307',
-    sku: 'Арт. 277',
     name: 'Самозбірна коробка №307',
     dimensions: { length: 280, width: 180, height: 100 },
     basePrice: 18,
@@ -92,7 +83,6 @@ export const products: Product[] = [
   {
     id: 'box-308',
     number: '308',
-    sku: 'Арт. 066',
     name: 'Самозбірна коробка №308',
     dimensions: { length: 250, width: 180, height: 40 },
     basePrice: 12,
@@ -101,7 +91,6 @@ export const products: Product[] = [
   {
     id: 'box-309',
     number: '309',
-    sku: 'Арт. 136',
     name: 'Самозбірна коробка №309',
     dimensions: { length: 210, width: 150, height: 50 },
     basePrice: 11,
@@ -110,7 +99,6 @@ export const products: Product[] = [
   {
     id: 'box-310',
     number: '310',
-    sku: 'Арт. 067',
     name: 'Самозбірна коробка №310',
     dimensions: { length: 260, width: 260, height: 50 },
     basePrice: 15,
@@ -119,7 +107,6 @@ export const products: Product[] = [
   {
     id: 'box-311',
     number: '311',
-    sku: 'Арт. 253',
     name: 'Самозбірна коробка №311',
     dimensions: { length: 370, width: 170, height: 100 },
     basePrice: 17,
@@ -127,7 +114,6 @@ export const products: Product[] = [
   {
     id: 'box-101',
     number: '101',
-    sku: 'Без артикулу',
     name: 'Самозбірна коробка №101',
     dimensions: { length: 178, width: 115, height: 48 },
     basePrice: 4,
@@ -139,7 +125,7 @@ export const faqItems = [
   {
     question: 'Як формується ціна на сайті?',
     answer:
-      'Для замовлень до 999 штук до базової ціни з прайса додається 2 грн за одиницю. Від 1000 до 50 000 штук — 1 грн. Калькулятор показує ціну за одиницю та весь тираж одразу.',
+      'Калькулятор одразу показує кінцеву ціну за одиницю та весь тираж. Від 1000 штук автоматично застосовується оптова ціна.',
   },
   {
     question: 'Чи можна повернути коробку іншою стороною?',
@@ -147,19 +133,14 @@ export const faqItems = [
       'Так. Підбір за розміром враховує поворот предмета: сервіс порівнює три сторони предмета з трьома внутрішніми сторонами коробки.',
   },
   {
-    question: 'Який матеріал використовується?',
-    answer:
-      'У поточному прайсі всі позиції показані в одному матеріалі — крафтовому мікрогофрокартоні. Інші матеріали не додаємо, доки власник не надасть окремі ціни.',
-  },
-  {
     question: 'Що отримує постійний клієнт?',
     answer:
-      'Після підтвердження менеджером у кабінеті з’являється персональна фіксована ціна, нижча за публічну оптову ціну. У прототипі це працює локально в браузері.',
+      'Після підтвердження менеджером у кабінеті активується персональна ціна. Вона автоматично відображається в каталозі, калькуляторі та кошику.',
   },
   {
-    question: 'Куди потрапляє заявка?',
+    question: 'Чи можна додати кілька розмірів в одне замовлення?',
     answer:
-      'У цьому статичному прототипі заявка зберігається тільки у вашому браузері й одразу з’являється на локальній демо-сторінці адміністратора. Для реальної роботи потрібен backend і база даних.',
+      'Так. Додавайте коробки до кошика, задавайте окрему кількість для кожного розміру та оформлюйте все однією заявкою.',
   },
   {
     question: 'Чи можна замовити більше 50 000 штук?',

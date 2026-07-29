@@ -19,13 +19,15 @@ new Function(scriptMatch[1]);
 
 for (const marker of [
   'TOFFIPACKS',
-  'toffipacks-demo-orders-v2',
+  'toffipacks-orders-v3',
+  'toffipacks-cart-v1',
   'data-open-product',
+  'data-product-to-cart',
   'calculator-card',
   'account-page',
   'product-dialog',
   'admin-page',
-  'Демо-прототип',
+  'Кошик',
 ]) {
   if (!html.includes(marker)) throw new Error(`Missing marker: ${marker}`);
 }
