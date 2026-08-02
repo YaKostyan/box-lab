@@ -284,7 +284,9 @@ function storefrontTemplate(): string {
       <nav class="site-nav" id="site-nav" aria-label="Основна навігація">
         <a href="#catalog">Розміри</a>
         <a href="#calculator">Калькулятор</a>
-        <a href="#business">Для бізнесу</a>
+        <a href="#about">Про нас</a>
+        <a href="#business">Бізнесу</a>
+        <a href="#delivery">Доставка</a>
         <a href="#faq">FAQ</a>
       </nav>
       <div class="header-actions">
@@ -310,7 +312,7 @@ function storefrontTemplate(): string {
             <a class="text-link" href="#catalog">Дивитися всі розміри <span aria-hidden="true">→</span></a>
           </div>
           <dl class="hero__facts">
-            <div><dt>12</dt><dd>розмірів у прайсі</dd></div>
+            <div><dt>12</dt><dd>готових розмірів</dd></div>
             <div><dt>1–50 000</dt><dd>діапазон калькулятора</dd></div>
             <div><dt>Одразу</dt><dd>кінцева вартість</dd></div>
           </dl>
@@ -483,31 +485,133 @@ function storefrontTemplate(): string {
         </div>
       </section>
 
+      <section class="section about-section" id="about">
+        <div class="about-layout">
+          <div class="about-copy reveal">
+            <p class="eyebrow"><span></span> Про ToffiPacks</p>
+            <h2>Коробки, які легко<br />підібрати й замовити.</h2>
+            <p class="about-copy__lead">
+              ToffiPacks виготовляє самозбірні коробки для малого бізнесу, виробництв
+              і регулярних великих замовлень. В основі сервісу — точний внутрішній розмір,
+              зрозуміла ціна та прямий зв’язок із менеджером.
+            </p>
+            <div class="about-facts">
+              <article>
+                <span>01</span>
+                <strong>Точний підбір</strong>
+                <p>Обираєте коробку за трьома габаритами, а не за умовною категорією товару.</p>
+              </article>
+              <article>
+                <span>02</span>
+                <strong>Зрозуміле замовлення</strong>
+                <p>Розмір, кількість і кінцева вартість зібрані в одному сценарії.</p>
+              </article>
+            </div>
+          </div>
+
+          <article class="eco-card reveal">
+            <div class="eco-card__topline">
+              <span class="technical-label">Екологічний підхід</span>
+              <span class="eco-card__seal" aria-hidden="true"></span>
+            </div>
+            <h3>Сертифікована<br />вторинна сировина.</h3>
+            <p>
+              Використовуємо високоякісний перероблений картон із підтверджувальними
+              сертифікатами. Повторне використання сировини зменшує потребу в новому картоні
+              та дає матеріалу ще один цикл життя.
+            </p>
+            <div class="eco-card__limit">
+              <strong>до 2 кг</strong>
+              <p>рекомендоване навантаження для цього картону</p>
+            </div>
+            <p class="eco-card__note">
+              За умови щільного внутрішнього пакування коробка надійно утримує вміст під час
+              зберігання та перевезення.
+            </p>
+          </article>
+        </div>
+      </section>
+
       <section class="section business-section" id="business">
         <div class="section-heading reveal">
           <div>
-            <p class="eyebrow"><span></span> Постійним клієнтам</p>
-            <h2>Ціна, яка не змінюється<br />від замовлення до замовлення.</h2>
+            <p class="eyebrow"><span></span> Для бізнесу</p>
+            <h2>Від першої партії<br />до великих тиражів.</h2>
           </div>
-          <p>Персональні умови прив’язуються до акаунта після підтвердження менеджером.</p>
+          <p>Працюємо і з невеликими замовленнями, і з регулярними потребами виробництва. Коробка підлаштовується під задачу, а не навпаки.</p>
         </div>
         <div class="business-grid">
           <article class="business-card reveal">
             <span class="business-card__number">01</span>
-            <h3>Реєстрація</h3>
-            <p>Створіть кабінет за номером телефону, щоб зберігати заявки та бачити свої умови.</p>
+            <h3>Малий бізнес</h3>
+            <p>Можна почати з невеликої партії, перевірити розмір і поступово збільшувати обсяг замовлення.</p>
           </article>
           <article class="business-card reveal">
             <span class="business-card__number">02</span>
-            <h3>Підтвердження</h3>
-            <p>Менеджер підтверджує профіль і активує персональні умови для постійних замовлень.</p>
+            <h3>Великі тиражі</h3>
+            <p>Калькулятор одразу рахує замовлення до 50 000 штук. Більший тираж менеджер прорахує окремо.</p>
           </article>
           <article class="business-card business-card--accent reveal">
             <span class="business-card__number">03</span>
-            <h3>Своя ціна</h3>
-            <p>Після входу каталог, калькулятор і заявка автоматично працюють за персональною ціною.</p>
-            <a class="text-link text-link--light" id="business-account-button" href="#account">Відкрити кабінет <span>→</span></a>
+            <h3>Під ваш запит</h3>
+            <p>Якщо готовий розмір не підходить, залиште потрібні габарити та вимоги — підготуємо коробку під вашу задачу.</p>
+            <a class="text-link text-link--light" href="#request">Описати задачу <span>→</span></a>
           </article>
+        </div>
+      </section>
+
+      <section class="section why-section" id="why">
+        <div class="why-heading reveal">
+          <p class="eyebrow"><span></span> Чому ToffiPacks</p>
+          <h2>Прості умови.<br /><em>Відчутна користь.</em></h2>
+          <p>Рішення оцінюємо не гучними словами, а тим, скільки часу, матеріалу й коштів воно заощаджує клієнту.</p>
+        </div>
+        <div class="why-grid">
+          <article class="why-card reveal">
+            <span>01</span>
+            <h3>Ціна</h3>
+            <p>Кінцева вартість за штуку і весь тираж видна ще до заявки.</p>
+          </article>
+          <article class="why-card reveal">
+            <span>02</span>
+            <h3>Якість</h3>
+            <p>Сертифікована сировина та контроль точності кожного розміру.</p>
+          </article>
+          <article class="why-card reveal">
+            <span>03</span>
+            <h3>Доступність</h3>
+            <p>Замовлення для малого й великого бізнесу без зайвих кроків.</p>
+          </article>
+          <article class="why-card why-card--accent reveal">
+            <span>04</span>
+            <h3>Економія</h3>
+            <p>Точний розмір скорочує зайве пакування, а тираж знижує витрати на одиницю.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section delivery-section" id="delivery">
+        <div class="delivery-layout">
+          <div class="delivery-copy reveal">
+            <p class="eyebrow eyebrow--light"><span></span> Доставка й оплата</p>
+            <h2>Умови відомі<br />до запуску.</h2>
+            <p>Менеджер погоджує спосіб доставки, строк і оплату разом із фінальним складом замовлення.</p>
+            <a class="button button--gold" href="#request">Залишити заявку</a>
+          </div>
+          <div class="delivery-list reveal">
+            <article>
+              <span>01</span>
+              <div><h3>Доставка</h3><p>Відправлення по Україні: місто, відділення або адресний формат узгоджуємо під час підтвердження.</p></div>
+            </article>
+            <article>
+              <span>02</span>
+              <div><h3>Строки</h3><p>Залежать від тиражу та індивідуального розміру. Точну дату називаємо до початку виготовлення.</p></div>
+            </article>
+            <article>
+              <span>03</span>
+              <div><h3>Оплата</h3><p>Форму оплати й рахунок погоджуємо разом із підсумковою вартістю до запуску замовлення.</p></div>
+            </article>
+          </div>
         </div>
       </section>
 
@@ -558,8 +662,8 @@ function storefrontTemplate(): string {
       <section class="section faq-section" id="faq">
         <div class="faq-intro reveal">
           <p class="eyebrow"><span></span> FAQ</p>
-          <h2>Коротко про ціни,<br />розміри й акаунти.</h2>
-          <p>Відповіді на основні питання перед замовленням.</p>
+          <h2>Коротко про<br />умови замовлення.</h2>
+          <p>Доставка, строки, оплата й індивідуальне виготовлення — без прихованих припущень.</p>
         </div>
         <div class="faq-list reveal">
           ${faqItems
@@ -584,6 +688,8 @@ function storefrontTemplate(): string {
       <div class="footer-links">
         <a href="#catalog">Розміри</a>
         <a href="#calculator">Ціни</a>
+        <a href="#about">Про нас</a>
+        <a href="#delivery">Доставка</a>
         <a href="#request">Кошик</a>
         <a href="#account">Кабінет</a>
       </div>

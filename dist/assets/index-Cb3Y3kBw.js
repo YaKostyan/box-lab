@@ -1,30 +1,30 @@
-(function(){const e=document.createElement("link").relList;if(e&&e.supports&&e.supports("modulepreload"))return;for(const s of document.querySelectorAll('link[rel="modulepreload"]'))n(s);new MutationObserver(s=>{for(const o of s)if(o.type==="childList")for(const i of o.addedNodes)i.tagName==="LINK"&&i.rel==="modulepreload"&&n(i)}).observe(document,{childList:!0,subtree:!0});function a(s){const o={};return s.integrity&&(o.integrity=s.integrity),s.referrerPolicy&&(o.referrerPolicy=s.referrerPolicy),s.crossOrigin==="use-credentials"?o.credentials="include":s.crossOrigin==="anonymous"?o.credentials="omit":o.credentials="same-origin",o}function n(s){if(s.ep)return;s.ep=!0;const o=a(s);fetch(s.href,o)}})();const C=5e4,x=1e3,bt=2,vt=1,W=.5,f=[{id:"box-301",number:"301",name:"Самозбірна коробка №301",dimensions:{length:165,width:100,height:30},basePrice:5,sourceQuantity:1e3},{id:"box-302",number:"302",name:"Самозбірна коробка №302",dimensions:{length:130,width:130,height:50},basePrice:7,sourceQuantity:800},{id:"box-303",number:"303",name:"Самозбірна коробка №303",dimensions:{length:190,width:150,height:100},basePrice:17,sourceQuantity:800},{id:"box-304",number:"304",name:"Самозбірна коробка №304",dimensions:{length:230,width:150,height:35},basePrice:11,sourceQuantity:800},{id:"box-305",number:"305",name:"Самозбірна коробка №305",dimensions:{length:160,width:85,height:110},basePrice:6.5},{id:"box-306",number:"306",name:"Самозбірна коробка №306",dimensions:{length:145,width:145,height:40},basePrice:6.5,sourceQuantity:1e3},{id:"box-307",number:"307",name:"Самозбірна коробка №307",dimensions:{length:280,width:180,height:100},basePrice:18,sourceQuantity:500},{id:"box-308",number:"308",name:"Самозбірна коробка №308",dimensions:{length:250,width:180,height:40},basePrice:12,sourceQuantity:800},{id:"box-309",number:"309",name:"Самозбірна коробка №309",dimensions:{length:210,width:150,height:50},basePrice:11,sourceQuantity:900},{id:"box-310",number:"310",name:"Самозбірна коробка №310",dimensions:{length:260,width:260,height:50},basePrice:15,sourceQuantity:600},{id:"box-311",number:"311",name:"Самозбірна коробка №311",dimensions:{length:370,width:170,height:100},basePrice:17},{id:"box-101",number:"101",name:"Самозбірна коробка №101",dimensions:{length:178,width:115,height:48},basePrice:4,sourceQuantity:800}],ft=[{question:"Як формується ціна на сайті?",answer:"Калькулятор одразу показує кінцеву ціну за одиницю та весь тираж. Від 1000 штук автоматично застосовується оптова ціна."},{question:"Чи можна повернути коробку іншою стороною?",answer:"Так. Підбір за розміром враховує поворот предмета: сервіс порівнює три сторони предмета з трьома внутрішніми сторонами коробки."},{question:"Що отримує постійний клієнт?",answer:"Після підтвердження менеджером у кабінеті активується персональна ціна. Вона автоматично відображається в каталозі, калькуляторі та кошику."},{question:"Чи можна додати кілька розмірів в одне замовлення?",answer:"Так. Додавайте коробки до кошика, задавайте окрему кількість для кожного розміру та оформлюйте все однією заявкою."},{question:"Чи можна замовити більше 50 000 штук?",answer:"Калькулятор обмежений 50 000 одиниць. Більший тираж можна описати в коментарі до заявки — менеджер розрахує його окремо після запуску справжньої системи."}];function u(t){return new Intl.NumberFormat("uk-UA",{style:"currency",currency:"UAH",minimumFractionDigits:Number.isInteger(t)?0:2,maximumFractionDigits:2}).format(t)}function $(t,e){return t.basePrice+(e>=x?vt:bt)}function A(t,e,a){return a?.partner?t.basePrice+Math.min(Math.max(a.fixedMarkup,0),.99):$(t,e)}function at(t){const{length:e,width:a,height:n}=t.dimensions;return e*a*n}function yt(t,e){const a=[t.length,t.width,t.height].sort((s,o)=>o-s),n=[e.length,e.width,e.height].sort((s,o)=>o-s);return a.every((s,o)=>s<=n[o])}const g={accounts:"toffipacks-accounts-v3",orders:"toffipacks-orders-v3",session:"toffipacks-session-v3",cart:"toffipacks-cart-v1"},nt=new Date().toISOString(),ct=[{id:"account-admin",name:"Адміністратор ToffiPacks",phone:"+380000000001",company:"ToffiPacks",password:"admin123",role:"admin",partner:!1,fixedMarkup:W,createdAt:nt},{id:"account-partner",name:"Постійний клієнт",phone:"+380671112233",company:"",password:"client123",role:"client",partner:!0,fixedMarkup:W,createdAt:nt}],lt=[];function G(t,e){try{const a=localStorage.getItem(t);return a?JSON.parse(a):e}catch{return e}}function v(t,e){localStorage.setItem(t,JSON.stringify(e))}function $t(){localStorage.getItem(g.accounts)||v(g.accounts,ct),localStorage.getItem(g.orders)||v(g.orders,lt),localStorage.getItem(g.cart)||v(g.cart,[])}$t();let P="box-101",d=500,J="",X="size",M=null,st,L=null;const dt=document.querySelector("#app");if(!dt)throw new Error("Root element #app was not found.");function E(){return G(g.accounts,ct)}function z(){return G(g.orders,lt).map(e=>{if("items"in e&&Array.isArray(e.items))return e;const a=e;return{id:a.id,createdAt:a.createdAt,customerName:a.customerName,phone:a.phone,company:a.company,comment:a.comment,items:[{productId:a.productId,productNumber:a.productNumber,dimensions:a.dimensions,quantity:a.quantity,unitPrice:a.unitPrice,total:a.total,priceType:a.priceType}],total:a.total,accountId:a.accountId,status:a.status}})}function U(){return G(g.cart,[]).filter(t=>f.some(e=>e.id===t.productId)&&t.quantity>0)}function _(){const t=localStorage.getItem(g.session);return E().find(e=>e.id===t)??null}function Y(){return f.find(t=>t.id===P)??f[0]}function j(t){return Number.isFinite(t)?Math.min(C,Math.max(1,Math.round(t))):1}function Z(t){let e=t.replace(/\D/g,"");return e.length===10&&e.startsWith("0")&&(e=`38${e}`),e.length===12&&e.startsWith("380")?`+${e}`:t.trim()}function R(t){return Z(t).replace(/\D/g,"")}function m(t){return t.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;")}function q(t){return`${t.length} × ${t.width} × ${t.height} мм`}function tt(t){const e=t%100,a=t%10;return e>=11&&e<=14?`${t} позицій`:a===1?`${t} позиція`:a>=2&&a<=4?`${t} позиції`:`${t} позицій`}function B(t,e){return e?.partner?"Фіксована ціна клієнта":t>=x?"Оптова ціна":"Роздрібна ціна"}function H(t,e=!1){const{length:a,width:n,height:s}=t.dimensions,o=170+Math.min(100,a/3),i=58+Math.min(54,s/2.5),r=50+Math.min(44,n/4),c=72,l=e?70:82,p=l-r*.55,h=c+o,y=h+r,b=l+i;return`
+(function(){const e=document.createElement("link").relList;if(e&&e.supports&&e.supports("modulepreload"))return;for(const s of document.querySelectorAll('link[rel="modulepreload"]'))n(s);new MutationObserver(s=>{for(const o of s)if(o.type==="childList")for(const i of o.addedNodes)i.tagName==="LINK"&&i.rel==="modulepreload"&&n(i)}).observe(document,{childList:!0,subtree:!0});function a(s){const o={};return s.integrity&&(o.integrity=s.integrity),s.referrerPolicy&&(o.referrerPolicy=s.referrerPolicy),s.crossOrigin==="use-credentials"?o.credentials="include":s.crossOrigin==="anonymous"?o.credentials="omit":o.credentials="same-origin",o}function n(s){if(s.ep)return;s.ep=!0;const o=a(s);fetch(s.href,o)}})();const C=5e4,x=1e3,vt=2,bt=1,W=.5,f=[{id:"box-301",number:"301",name:"Самозбірна коробка №301",dimensions:{length:165,width:100,height:30},basePrice:5,sourceQuantity:1e3},{id:"box-302",number:"302",name:"Самозбірна коробка №302",dimensions:{length:130,width:130,height:50},basePrice:7,sourceQuantity:800},{id:"box-303",number:"303",name:"Самозбірна коробка №303",dimensions:{length:190,width:150,height:100},basePrice:17,sourceQuantity:800},{id:"box-304",number:"304",name:"Самозбірна коробка №304",dimensions:{length:230,width:150,height:35},basePrice:11,sourceQuantity:800},{id:"box-305",number:"305",name:"Самозбірна коробка №305",dimensions:{length:160,width:85,height:110},basePrice:6.5},{id:"box-306",number:"306",name:"Самозбірна коробка №306",dimensions:{length:145,width:145,height:40},basePrice:6.5,sourceQuantity:1e3},{id:"box-307",number:"307",name:"Самозбірна коробка №307",dimensions:{length:280,width:180,height:100},basePrice:18,sourceQuantity:500},{id:"box-308",number:"308",name:"Самозбірна коробка №308",dimensions:{length:250,width:180,height:40},basePrice:12,sourceQuantity:800},{id:"box-309",number:"309",name:"Самозбірна коробка №309",dimensions:{length:210,width:150,height:50},basePrice:11,sourceQuantity:900},{id:"box-310",number:"310",name:"Самозбірна коробка №310",dimensions:{length:260,width:260,height:50},basePrice:15,sourceQuantity:600},{id:"box-311",number:"311",name:"Самозбірна коробка №311",dimensions:{length:370,width:170,height:100},basePrice:17},{id:"box-101",number:"101",name:"Самозбірна коробка №101",dimensions:{length:178,width:115,height:48},basePrice:4,sourceQuantity:800}],ft=[{question:"Як відбувається доставка?",answer:"Відправляємо замовлення по Україні. Місто, відділення або адресний формат менеджер погоджує з вами під час підтвердження заявки."},{question:"Які строки виготовлення?",answer:"Строк залежить від розміру коробки, тиражу та завантаження виробництва. Менеджер називає точну дату до запуску замовлення."},{question:"Що отримує постійний клієнт?",answer:"Після підтвердження менеджером у кабінеті активується персональна ціна. Вона автоматично відображається в каталозі, калькуляторі та кошику."},{question:"Як проходить оплата?",answer:"Форму оплати, рахунок і підсумкову суму менеджер погоджує з вами до початку виготовлення."},{question:"Чи працюєте ви з малим і великим бізнесом?",answer:"Так. Можна почати з невеликої партії або замовити регулярний великий тираж. Калькулятор рахує до 50 000 коробок, більший обсяг прораховує менеджер."},{question:"Чи робите коробки під індивідуальний запит?",answer:"Так. Якщо серед готових розмірів немає потрібного, вкажіть габарити й особливості замовлення в коментарі. Менеджер уточнить деталі та підготує розрахунок."}];function u(t){return new Intl.NumberFormat("uk-UA",{style:"currency",currency:"UAH",minimumFractionDigits:Number.isInteger(t)?0:2,maximumFractionDigits:2}).format(t)}function $(t,e){return t.basePrice+(e>=x?bt:vt)}function A(t,e,a){return a?.partner?t.basePrice+Math.min(Math.max(a.fixedMarkup,0),.99):$(t,e)}function at(t){const{length:e,width:a,height:n}=t.dimensions;return e*a*n}function yt(t,e){const a=[t.length,t.width,t.height].sort((s,o)=>o-s),n=[e.length,e.width,e.height].sort((s,o)=>o-s);return a.every((s,o)=>s<=n[o])}const h={accounts:"toffipacks-accounts-v3",orders:"toffipacks-orders-v3",session:"toffipacks-session-v3",cart:"toffipacks-cart-v1"},nt=new Date().toISOString(),ct=[{id:"account-admin",name:"Адміністратор ToffiPacks",phone:"+380000000001",company:"ToffiPacks",password:"admin123",role:"admin",partner:!1,fixedMarkup:W,createdAt:nt},{id:"account-partner",name:"Постійний клієнт",phone:"+380671112233",company:"",password:"client123",role:"client",partner:!0,fixedMarkup:W,createdAt:nt}],lt=[];function G(t,e){try{const a=localStorage.getItem(t);return a?JSON.parse(a):e}catch{return e}}function b(t,e){localStorage.setItem(t,JSON.stringify(e))}function $t(){localStorage.getItem(h.accounts)||b(h.accounts,ct),localStorage.getItem(h.orders)||b(h.orders,lt),localStorage.getItem(h.cart)||b(h.cart,[])}$t();let P="box-101",d=500,J="",X="size",M=null,st,L=null;const dt=document.querySelector("#app");if(!dt)throw new Error("Root element #app was not found.");function E(){return G(h.accounts,ct)}function z(){return G(h.orders,lt).map(e=>{if("items"in e&&Array.isArray(e.items))return e;const a=e;return{id:a.id,createdAt:a.createdAt,customerName:a.customerName,phone:a.phone,company:a.company,comment:a.comment,items:[{productId:a.productId,productNumber:a.productNumber,dimensions:a.dimensions,quantity:a.quantity,unitPrice:a.unitPrice,total:a.total,priceType:a.priceType}],total:a.total,accountId:a.accountId,status:a.status}})}function U(){return G(h.cart,[]).filter(t=>f.some(e=>e.id===t.productId)&&t.quantity>0)}function _(){const t=localStorage.getItem(h.session);return E().find(e=>e.id===t)??null}function Y(){return f.find(t=>t.id===P)??f[0]}function j(t){return Number.isFinite(t)?Math.min(C,Math.max(1,Math.round(t))):1}function Z(t){let e=t.replace(/\D/g,"");return e.length===10&&e.startsWith("0")&&(e=`38${e}`),e.length===12&&e.startsWith("380")?`+${e}`:t.trim()}function R(t){return Z(t).replace(/\D/g,"")}function m(t){return t.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;")}function q(t){return`${t.length} × ${t.width} × ${t.height} мм`}function tt(t){const e=t%100,a=t%10;return e>=11&&e<=14?`${t} позицій`:a===1?`${t} позиція`:a>=2&&a<=4?`${t} позиції`:`${t} позицій`}function B(t,e){return e?.partner?"Фіксована ціна клієнта":t>=x?"Оптова ціна":"Роздрібна ціна"}function H(t,e=!1){const{length:a,width:n,height:s}=t.dimensions,o=170+Math.min(100,a/3),i=58+Math.min(54,s/2.5),r=50+Math.min(44,n/4),c=72,l=e?70:82,p=l-r*.55,g=c+o,y=g+r,v=l+i;return`
     <svg class="box-visual${e?" box-visual--compact":""}" viewBox="0 0 470 270" role="img"
       aria-label="Схема коробки ${m(t.number)}, ${q(t.dimensions)}">
       <g class="box-visual__shape">
-        <polygon class="box-visual__top" points="${c},${l} ${c+r},${p} ${y},${p} ${h},${l}" />
-        <polygon class="box-visual__side" points="${h},${l} ${y},${p} ${y},${p+i} ${h},${b}" />
+        <polygon class="box-visual__top" points="${c},${l} ${c+r},${p} ${y},${p} ${g},${l}" />
+        <polygon class="box-visual__side" points="${g},${l} ${y},${p} ${y},${p+i} ${g},${v}" />
         <rect class="box-visual__front" x="${c}" y="${l}" width="${o}" height="${i}" />
         <rect class="box-visual__mark" x="${c+o*.35}" y="${l+i*.32}"
           width="${o*.3}" height="${Math.max(24,i*.34)}" rx="5" />
         <text class="box-visual__number" x="${c+o/2}" y="${l+i*.56}">№${t.number}</text>
       </g>
       <g class="dimension-line dimension-line--length">
-        <line x1="${c}" y1="${b+28}" x2="${h}" y2="${b+28}" />
-        <line x1="${c}" y1="${b+20}" x2="${c}" y2="${b+36}" />
-        <line x1="${h}" y1="${b+20}" x2="${h}" y2="${b+36}" />
-        <rect x="${c+o/2-38}" y="${b+12}" width="76" height="32" rx="16" />
-        <text x="${c+o/2}" y="${b+33}">${a} мм</text>
+        <line x1="${c}" y1="${v+28}" x2="${g}" y2="${v+28}" />
+        <line x1="${c}" y1="${v+20}" x2="${c}" y2="${v+36}" />
+        <line x1="${g}" y1="${v+20}" x2="${g}" y2="${v+36}" />
+        <rect x="${c+o/2-38}" y="${v+12}" width="76" height="32" rx="16" />
+        <text x="${c+o/2}" y="${v+33}">${a} мм</text>
       </g>
       <g class="dimension-line dimension-line--height">
-        <line x1="${c-26}" y1="${l}" x2="${c-26}" y2="${b}" />
+        <line x1="${c-26}" y1="${l}" x2="${c-26}" y2="${v}" />
         <line x1="${c-34}" y1="${l}" x2="${c-18}" y2="${l}" />
-        <line x1="${c-34}" y1="${b}" x2="${c-18}" y2="${b}" />
+        <line x1="${c-34}" y1="${v}" x2="${c-18}" y2="${v}" />
         <rect x="2" y="${l+i/2-16}" width="66" height="32" rx="16" />
         <text x="35" y="${l+i/2+5}">${s} мм</text>
       </g>
       <g class="dimension-line dimension-line--width">
-        <line x1="${h+8}" y1="${l-8}" x2="${y+8}" y2="${p-8}" />
+        <line x1="${g+8}" y1="${l-8}" x2="${y+8}" y2="${p-8}" />
         <rect x="${y-54}" y="${Math.max(4,p-48)}" width="76" height="32" rx="16" />
         <text x="${y-16}" y="${Math.max(25,p-27)}">${n} мм</text>
       </g>
@@ -38,7 +38,9 @@
       <nav class="site-nav" id="site-nav" aria-label="Основна навігація">
         <a href="#catalog">Розміри</a>
         <a href="#calculator">Калькулятор</a>
-        <a href="#business">Для бізнесу</a>
+        <a href="#about">Про нас</a>
+        <a href="#business">Бізнесу</a>
+        <a href="#delivery">Доставка</a>
         <a href="#faq">FAQ</a>
       </nav>
       <div class="header-actions">
@@ -64,7 +66,7 @@
             <a class="text-link" href="#catalog">Дивитися всі розміри <span aria-hidden="true">→</span></a>
           </div>
           <dl class="hero__facts">
-            <div><dt>12</dt><dd>розмірів у прайсі</dd></div>
+            <div><dt>12</dt><dd>готових розмірів</dd></div>
             <div><dt>1–50 000</dt><dd>діапазон калькулятора</dd></div>
             <div><dt>Одразу</dt><dd>кінцева вартість</dd></div>
           </dl>
@@ -237,31 +239,133 @@
         </div>
       </section>
 
+      <section class="section about-section" id="about">
+        <div class="about-layout">
+          <div class="about-copy reveal">
+            <p class="eyebrow"><span></span> Про ToffiPacks</p>
+            <h2>Коробки, які легко<br />підібрати й замовити.</h2>
+            <p class="about-copy__lead">
+              ToffiPacks виготовляє самозбірні коробки для малого бізнесу, виробництв
+              і регулярних великих замовлень. В основі сервісу — точний внутрішній розмір,
+              зрозуміла ціна та прямий зв’язок із менеджером.
+            </p>
+            <div class="about-facts">
+              <article>
+                <span>01</span>
+                <strong>Точний підбір</strong>
+                <p>Обираєте коробку за трьома габаритами, а не за умовною категорією товару.</p>
+              </article>
+              <article>
+                <span>02</span>
+                <strong>Зрозуміле замовлення</strong>
+                <p>Розмір, кількість і кінцева вартість зібрані в одному сценарії.</p>
+              </article>
+            </div>
+          </div>
+
+          <article class="eco-card reveal">
+            <div class="eco-card__topline">
+              <span class="technical-label">Екологічний підхід</span>
+              <span class="eco-card__seal" aria-hidden="true"></span>
+            </div>
+            <h3>Сертифікована<br />вторинна сировина.</h3>
+            <p>
+              Використовуємо високоякісний перероблений картон із підтверджувальними
+              сертифікатами. Повторне використання сировини зменшує потребу в новому картоні
+              та дає матеріалу ще один цикл життя.
+            </p>
+            <div class="eco-card__limit">
+              <strong>до 2 кг</strong>
+              <p>рекомендоване навантаження для цього картону</p>
+            </div>
+            <p class="eco-card__note">
+              За умови щільного внутрішнього пакування коробка надійно утримує вміст під час
+              зберігання та перевезення.
+            </p>
+          </article>
+        </div>
+      </section>
+
       <section class="section business-section" id="business">
         <div class="section-heading reveal">
           <div>
-            <p class="eyebrow"><span></span> Постійним клієнтам</p>
-            <h2>Ціна, яка не змінюється<br />від замовлення до замовлення.</h2>
+            <p class="eyebrow"><span></span> Для бізнесу</p>
+            <h2>Від першої партії<br />до великих тиражів.</h2>
           </div>
-          <p>Персональні умови прив’язуються до акаунта після підтвердження менеджером.</p>
+          <p>Працюємо і з невеликими замовленнями, і з регулярними потребами виробництва. Коробка підлаштовується під задачу, а не навпаки.</p>
         </div>
         <div class="business-grid">
           <article class="business-card reveal">
             <span class="business-card__number">01</span>
-            <h3>Реєстрація</h3>
-            <p>Створіть кабінет за номером телефону, щоб зберігати заявки та бачити свої умови.</p>
+            <h3>Малий бізнес</h3>
+            <p>Можна почати з невеликої партії, перевірити розмір і поступово збільшувати обсяг замовлення.</p>
           </article>
           <article class="business-card reveal">
             <span class="business-card__number">02</span>
-            <h3>Підтвердження</h3>
-            <p>Менеджер підтверджує профіль і активує персональні умови для постійних замовлень.</p>
+            <h3>Великі тиражі</h3>
+            <p>Калькулятор одразу рахує замовлення до 50 000 штук. Більший тираж менеджер прорахує окремо.</p>
           </article>
           <article class="business-card business-card--accent reveal">
             <span class="business-card__number">03</span>
-            <h3>Своя ціна</h3>
-            <p>Після входу каталог, калькулятор і заявка автоматично працюють за персональною ціною.</p>
-            <a class="text-link text-link--light" id="business-account-button" href="#account">Відкрити кабінет <span>→</span></a>
+            <h3>Під ваш запит</h3>
+            <p>Якщо готовий розмір не підходить, залиште потрібні габарити та вимоги — підготуємо коробку під вашу задачу.</p>
+            <a class="text-link text-link--light" href="#request">Описати задачу <span>→</span></a>
           </article>
+        </div>
+      </section>
+
+      <section class="section why-section" id="why">
+        <div class="why-heading reveal">
+          <p class="eyebrow"><span></span> Чому ToffiPacks</p>
+          <h2>Прості умови.<br /><em>Відчутна користь.</em></h2>
+          <p>Рішення оцінюємо не гучними словами, а тим, скільки часу, матеріалу й коштів воно заощаджує клієнту.</p>
+        </div>
+        <div class="why-grid">
+          <article class="why-card reveal">
+            <span>01</span>
+            <h3>Ціна</h3>
+            <p>Кінцева вартість за штуку і весь тираж видна ще до заявки.</p>
+          </article>
+          <article class="why-card reveal">
+            <span>02</span>
+            <h3>Якість</h3>
+            <p>Сертифікована сировина та контроль точності кожного розміру.</p>
+          </article>
+          <article class="why-card reveal">
+            <span>03</span>
+            <h3>Доступність</h3>
+            <p>Замовлення для малого й великого бізнесу без зайвих кроків.</p>
+          </article>
+          <article class="why-card why-card--accent reveal">
+            <span>04</span>
+            <h3>Економія</h3>
+            <p>Точний розмір скорочує зайве пакування, а тираж знижує витрати на одиницю.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section delivery-section" id="delivery">
+        <div class="delivery-layout">
+          <div class="delivery-copy reveal">
+            <p class="eyebrow eyebrow--light"><span></span> Доставка й оплата</p>
+            <h2>Умови відомі<br />до запуску.</h2>
+            <p>Менеджер погоджує спосіб доставки, строк і оплату разом із фінальним складом замовлення.</p>
+            <a class="button button--gold" href="#request">Залишити заявку</a>
+          </div>
+          <div class="delivery-list reveal">
+            <article>
+              <span>01</span>
+              <div><h3>Доставка</h3><p>Відправлення по Україні: місто, відділення або адресний формат узгоджуємо під час підтвердження.</p></div>
+            </article>
+            <article>
+              <span>02</span>
+              <div><h3>Строки</h3><p>Залежать від тиражу та індивідуального розміру. Точну дату називаємо до початку виготовлення.</p></div>
+            </article>
+            <article>
+              <span>03</span>
+              <div><h3>Оплата</h3><p>Форму оплати й рахунок погоджуємо разом із підсумковою вартістю до запуску замовлення.</p></div>
+            </article>
+          </div>
         </div>
       </section>
 
@@ -312,8 +416,8 @@
       <section class="section faq-section" id="faq">
         <div class="faq-intro reveal">
           <p class="eyebrow"><span></span> FAQ</p>
-          <h2>Коротко про ціни,<br />розміри й акаунти.</h2>
-          <p>Відповіді на основні питання перед замовленням.</p>
+          <h2>Коротко про<br />умови замовлення.</h2>
+          <p>Доставка, строки, оплата й індивідуальне виготовлення — без прихованих припущень.</p>
         </div>
         <div class="faq-list reveal">
           ${ft.map((e,a)=>`
@@ -334,6 +438,8 @@
       <div class="footer-links">
         <a href="#catalog">Розміри</a>
         <a href="#calculator">Ціни</a>
+        <a href="#about">Про нас</a>
+        <a href="#delivery">Доставка</a>
         <a href="#request">Кошик</a>
         <a href="#account">Кабінет</a>
       </div>
@@ -444,14 +550,14 @@
         <p>Змініть габарити предмета або залиште заявку з потрібним розміром.</p>
         <a class="button button--primary" href="#request">Описати свій розмір</a>
       </div>
-    `;return}Q.innerHTML=e.map(wt).join("")}function K(){window.clearTimeout(st),w(!0),st=window.setTimeout(()=>w(!1),320)}function T(){const t=Y(),e=_(),a=A(t,d,e),n=a*d,s=B(d,e);document.querySelectorAll("#calculator-product-select, #hero-product-select").forEach(S=>{S.value=t.id}),document.querySelectorAll("#quantity-input, #hero-quantity-input, #modal-quantity-input").forEach(S=>{S.value=String(d)});const o=document.querySelector("#quantity-output");o&&(o.value=`${d.toLocaleString("uk-UA")} шт.`);const i=document.querySelector("#calculator-preview");i&&(i.classList.remove("is-changing"),i.offsetWidth,i.classList.add("is-changing"),i.innerHTML=H(t,!0));const r=document.querySelector("#calculator-tier");r&&(r.textContent=s);const c=document.querySelector("#calculator-unit-price");c&&(c.innerHTML=`${u(a)}<small>/ шт.</small>`);const l=document.querySelector("#calculator-total");l&&(l.textContent=u(n));const p=document.querySelector("#hero-price-label");p&&(p.textContent=s);const h=document.querySelector("#hero-total");h&&(h.textContent=u(n));const y=document.querySelector("#hero-unit");y&&(y.textContent=`${u(a)} / шт.`);const b=document.querySelector("#account-price-badge");b&&(b.textContent=e?.partner?"Персональна ціна активна":"Публічна ціна",b.classList.toggle("is-partner",!!e?.partner));const F=document.querySelector("#threshold-note");if(F)if(e?.partner)F.innerHTML=`<strong>Фіксована ціна:</strong> ${u(a)} за одиницю незалежно від тиражу.`;else if(d<x){const S=x-d,ht=$(t,x)*x;F.innerHTML=`Ще <strong>${S.toLocaleString("uk-UA")} шт.</strong> до оптового тарифу. 1000 шт. коштуватимуть ${u(ht)}.`}else F.innerHTML=`<strong>Оптовий тариф активний.</strong> Економія проти роздрібної ціни — ${u(d)} на всьому тиражі.`;document.querySelectorAll("[data-quantity]").forEach(S=>{S.classList.toggle("is-active",Number(S.dataset.quantity)===d)}),I(),ut()}function et(t,e=!1){f.some(a=>a.id===t)&&(P=t,w(!1),T(),e&&document.querySelector("#calculator")?.scrollIntoView({behavior:"smooth",block:"start"}))}function N(t){d=j(t),T()}function ot(t,e){if(!f.some(o=>o.id===t))return;const a=U(),n=a.find(o=>o.productId===t);n?n.quantity=j(e):a.push({productId:t,quantity:j(e)}),v(g.cart,a),I();const s=document.querySelector("#cart-button");s?.classList.remove("is-updated"),s?.offsetWidth,s?.classList.add("is-updated")}function xt(t,e){const a=U(),n=a.find(s=>s.productId===t);n&&(n.quantity=j(e),v(g.cart,a),I())}function Lt(t){v(g.cart,U().filter(e=>e.productId!==t)),I()}function I(){const t=document.querySelector("#request-summary"),e=document.querySelector("#cart-count"),a=document.querySelector('#request-form button[type="submit"]'),n=U(),s=_();if(e&&(e.textContent=String(n.length)),a&&(a.disabled=n.length===0),!t)return;if(!n.length){t.innerHTML=`
+    `;return}Q.innerHTML=e.map(wt).join("")}function K(){window.clearTimeout(st),w(!0),st=window.setTimeout(()=>w(!1),320)}function T(){const t=Y(),e=_(),a=A(t,d,e),n=a*d,s=B(d,e);document.querySelectorAll("#calculator-product-select, #hero-product-select").forEach(S=>{S.value=t.id}),document.querySelectorAll("#quantity-input, #hero-quantity-input, #modal-quantity-input").forEach(S=>{S.value=String(d)});const o=document.querySelector("#quantity-output");o&&(o.value=`${d.toLocaleString("uk-UA")} шт.`);const i=document.querySelector("#calculator-preview");i&&(i.classList.remove("is-changing"),i.offsetWidth,i.classList.add("is-changing"),i.innerHTML=H(t,!0));const r=document.querySelector("#calculator-tier");r&&(r.textContent=s);const c=document.querySelector("#calculator-unit-price");c&&(c.innerHTML=`${u(a)}<small>/ шт.</small>`);const l=document.querySelector("#calculator-total");l&&(l.textContent=u(n));const p=document.querySelector("#hero-price-label");p&&(p.textContent=s);const g=document.querySelector("#hero-total");g&&(g.textContent=u(n));const y=document.querySelector("#hero-unit");y&&(y.textContent=`${u(a)} / шт.`);const v=document.querySelector("#account-price-badge");v&&(v.textContent=e?.partner?"Персональна ціна активна":"Публічна ціна",v.classList.toggle("is-partner",!!e?.partner));const F=document.querySelector("#threshold-note");if(F)if(e?.partner)F.innerHTML=`<strong>Фіксована ціна:</strong> ${u(a)} за одиницю незалежно від тиражу.`;else if(d<x){const S=x-d,gt=$(t,x)*x;F.innerHTML=`Ще <strong>${S.toLocaleString("uk-UA")} шт.</strong> до оптового тарифу. 1000 шт. коштуватимуть ${u(gt)}.`}else F.innerHTML=`<strong>Оптовий тариф активний.</strong> Економія проти роздрібної ціни — ${u(d)} на всьому тиражі.`;document.querySelectorAll("[data-quantity]").forEach(S=>{S.classList.toggle("is-active",Number(S.dataset.quantity)===d)}),I(),ut()}function et(t,e=!1){f.some(a=>a.id===t)&&(P=t,w(!1),T(),e&&document.querySelector("#calculator")?.scrollIntoView({behavior:"smooth",block:"start"}))}function N(t){d=j(t),T()}function ot(t,e){if(!f.some(o=>o.id===t))return;const a=U(),n=a.find(o=>o.productId===t);n?n.quantity=j(e):a.push({productId:t,quantity:j(e)}),b(h.cart,a),I();const s=document.querySelector("#cart-button");s?.classList.remove("is-updated"),s?.offsetWidth,s?.classList.add("is-updated")}function xt(t,e){const a=U(),n=a.find(s=>s.productId===t);n&&(n.quantity=j(e),b(h.cart,a),I())}function Lt(t){b(h.cart,U().filter(e=>e.productId!==t)),I()}function I(){const t=document.querySelector("#request-summary"),e=document.querySelector("#cart-count"),a=document.querySelector('#request-form button[type="submit"]'),n=U(),s=_();if(e&&(e.textContent=String(n.length)),a&&(a.disabled=n.length===0),!t)return;if(!n.length){t.innerHTML=`
       <div class="cart-empty">
         <span aria-hidden="true">□</span>
         <strong>Кошик порожній</strong>
         <p>Оберіть розмір і додайте потрібну кількість коробок.</p>
         <a class="button button--ghost button--small" href="#catalog">Обрати коробки</a>
       </div>
-    `;return}let o=0;const i=n.map(r=>{const c=f.find(h=>h.id===r.productId);if(!c)return"";const l=A(c,r.quantity,s),p=l*r.quantity;return o+=p,`
+    `;return}let o=0;const i=n.map(r=>{const c=f.find(g=>g.id===r.productId);if(!c)return"";const l=A(c,r.quantity,s),p=l*r.quantity;return o+=p,`
         <article class="cart-item">
           <div class="cart-item__index">№${c.number}</div>
           <div class="cart-item__info">
@@ -574,7 +680,7 @@
         </form>
       </div>
     </div>
-  `}function O(){const t=document.querySelector("#account-page-content");t&&(t.innerHTML=Tt())}function mt(t,e,a){const n=t.querySelector("[data-auth-status]");n&&(n.textContent=e,n.className=`form-status is-${a}`)}function At(t,e){const a=R(t),n=E().find(s=>R(s.phone)===a&&s.password===e);return n?(localStorage.setItem(g.session,n.id),n):null}function rt(t,e=!1){if(t.classList.add("was-validated"),!t.reportValidity())return;const a=new FormData(t),n=At(String(a.get("phone")??""),String(a.get("password")??""));if(!n||e&&n.role!=="admin"){mt(t,e?"Потрібен акаунт менеджера.":"Невірний телефон або пароль.","error");return}D(),T(),w(!1),e?k():(O(),window.location.hash="account")}function kt(t){if(t.classList.add("was-validated"),!t.reportValidity())return;const e=new FormData(t),a=Z(String(e.get("phone")??"")),n=E();if(n.some(o=>R(o.phone)===R(a))){mt(t,"Акаунт із таким номером уже існує.","error");return}const s={id:`account-${Date.now().toString(36)}`,name:String(e.get("name")??"").trim(),phone:a,company:String(e.get("company")??"").trim(),password:String(e.get("password")??""),role:"client",partner:!1,fixedMarkup:W,createdAt:new Date().toISOString()};n.push(s),v(g.accounts,n),localStorage.setItem(g.session,s.id),D(),T(),w(!1),O(),window.location.hash="account"}function Pt(t){const e=document.querySelector("#request-status"),a=U();if(!a.length){e&&(e.className="form-status is-error",e.textContent="Додайте хоча б одну коробку до кошика.");return}if(t.classList.add("was-validated"),!t.reportValidity()){e&&(e.className="form-status is-error",e.textContent="Перевірте обов’язкові поля та згоду.");return}const n=new FormData(t),s=_(),o=a.flatMap(l=>{const p=f.find(y=>y.id===l.productId);if(!p)return[];const h=A(p,l.quantity,s);return[{productId:p.id,productNumber:p.number,dimensions:p.dimensions,quantity:l.quantity,unitPrice:h,total:h*l.quantity,priceType:B(l.quantity,s)}]}),i=o.reduce((l,p)=>l+p.total,0),r={id:`TP-${Date.now().toString(36).toUpperCase()}`,createdAt:new Date().toISOString(),customerName:String(n.get("name")??"").trim(),phone:Z(String(n.get("phone")??"")),company:String(n.get("company")??"").trim(),comment:String(n.get("comment")??"").trim(),items:o,total:i,accountId:s?.id,status:"Нова"},c=z();c.push(r),v(g.orders,c),v(g.cart,[]),I(),O(),e&&(e.className="form-status is-success",e.innerHTML=`<strong>Заявку створено.</strong><span>${tt(r.items.length)} на суму ${u(r.total)}.</span>`),t.querySelector('button[type="submit"]')?.focus()}function Mt(t){return["Нова","У роботі","Уточнення","Підтверджена","Закрита"].map(a=>`<option value="${a}"${a===t?" selected":""}>${a}</option>`).join("")}function k(){const t=document.querySelector("#admin-content");if(!t)return;const e=_();if(!e||e.role!=="admin"){t.innerHTML=`
+  `}function O(){const t=document.querySelector("#account-page-content");t&&(t.innerHTML=Tt())}function mt(t,e,a){const n=t.querySelector("[data-auth-status]");n&&(n.textContent=e,n.className=`form-status is-${a}`)}function At(t,e){const a=R(t),n=E().find(s=>R(s.phone)===a&&s.password===e);return n?(localStorage.setItem(h.session,n.id),n):null}function rt(t,e=!1){if(t.classList.add("was-validated"),!t.reportValidity())return;const a=new FormData(t),n=At(String(a.get("phone")??""),String(a.get("password")??""));if(!n||e&&n.role!=="admin"){mt(t,e?"Потрібен акаунт менеджера.":"Невірний телефон або пароль.","error");return}D(),T(),w(!1),e?k():(O(),window.location.hash="account")}function kt(t){if(t.classList.add("was-validated"),!t.reportValidity())return;const e=new FormData(t),a=Z(String(e.get("phone")??"")),n=E();if(n.some(o=>R(o.phone)===R(a))){mt(t,"Акаунт із таким номером уже існує.","error");return}const s={id:`account-${Date.now().toString(36)}`,name:String(e.get("name")??"").trim(),phone:a,company:String(e.get("company")??"").trim(),password:String(e.get("password")??""),role:"client",partner:!1,fixedMarkup:W,createdAt:new Date().toISOString()};n.push(s),b(h.accounts,n),localStorage.setItem(h.session,s.id),D(),T(),w(!1),O(),window.location.hash="account"}function Pt(t){const e=document.querySelector("#request-status"),a=U();if(!a.length){e&&(e.className="form-status is-error",e.textContent="Додайте хоча б одну коробку до кошика.");return}if(t.classList.add("was-validated"),!t.reportValidity()){e&&(e.className="form-status is-error",e.textContent="Перевірте обов’язкові поля та згоду.");return}const n=new FormData(t),s=_(),o=a.flatMap(l=>{const p=f.find(y=>y.id===l.productId);if(!p)return[];const g=A(p,l.quantity,s);return[{productId:p.id,productNumber:p.number,dimensions:p.dimensions,quantity:l.quantity,unitPrice:g,total:g*l.quantity,priceType:B(l.quantity,s)}]}),i=o.reduce((l,p)=>l+p.total,0),r={id:`TP-${Date.now().toString(36).toUpperCase()}`,createdAt:new Date().toISOString(),customerName:String(n.get("name")??"").trim(),phone:Z(String(n.get("phone")??"")),company:String(n.get("company")??"").trim(),comment:String(n.get("comment")??"").trim(),items:o,total:i,accountId:s?.id,status:"Нова"},c=z();c.push(r),b(h.orders,c),b(h.cart,[]),I(),O(),e&&(e.className="form-status is-success",e.innerHTML=`<strong>Заявку створено.</strong><span>${tt(r.items.length)} на суму ${u(r.total)}.</span>`),t.querySelector('button[type="submit"]')?.focus()}function Mt(t){return["Нова","У роботі","Уточнення","Підтверджена","Закрита"].map(a=>`<option value="${a}"${a===t?" selected":""}>${a}</option>`).join("")}function k(){const t=document.querySelector("#admin-content");if(!t)return;const e=_();if(!e||e.role!=="admin"){t.innerHTML=`
       <div class="admin-login">
         <p class="eyebrow"><span></span> Для менеджера</p>
         <h1 id="admin-title">Вхід для менеджера.</h1>
@@ -647,4 +753,4 @@
         </div>
       </section>
     </div>
-  `}function gt(){const t=document.querySelector("#admin-page"),e=document.querySelector("#account-page"),a=document.querySelector("#main"),n=document.querySelector(".site-header"),s=document.querySelector(".site-footer"),o=document.querySelector(".demo-strip"),i=window.location.hash==="#admin",r=window.location.hash==="#account";t&&(t.hidden=!i),e&&(e.hidden=!r),a&&(a.hidden=i||r),n&&(n.hidden=i||r),s&&(s.hidden=i||r),o&&(o.hidden=i||r),document.body.classList.toggle("is-admin",i),document.body.classList.toggle("is-account",r),i?(k(),window.scrollTo({top:0})):r&&(O(),window.scrollTo({top:0}))}function Et(){const t=document.querySelectorAll(".reveal");if(!("IntersectionObserver"in window)){t.forEach(a=>a.classList.add("is-visible"));return}const e=new IntersectionObserver(a=>{a.forEach(n=>{n.isIntersecting&&(n.target.classList.add("is-visible"),e.unobserve(n.target))})},{threshold:.12});t.forEach(a=>e.observe(a))}document.querySelector("#menu-button")?.addEventListener("click",t=>{const e=t.currentTarget,a=document.querySelector("#site-nav"),n=e.getAttribute("aria-expanded")!=="true";e.setAttribute("aria-expanded",String(n)),a?.classList.toggle("is-open",n)});document.querySelectorAll(".site-nav a").forEach(t=>{t.addEventListener("click",()=>{document.querySelector("#site-nav")?.classList.remove("is-open"),document.querySelector("#menu-button")?.setAttribute("aria-expanded","false")})});document.querySelector("#fit-form")?.addEventListener("submit",t=>{t.preventDefault();const e=t.currentTarget;e.classList.add("was-validated");const a=document.querySelector("#fit-message");if(!e.reportValidity()){a&&(a.textContent="Вкажіть три додатні розміри.",a.className="form-message is-error");return}const n=new FormData(e);M={length:Number(n.get("length")),width:Number(n.get("width")),height:Number(n.get("height"))},a&&(a.textContent="Розміри застосовано. Показуємо коробки нижче.",a.className="form-message is-success"),K(),window.setTimeout(()=>document.querySelector("#catalog")?.scrollIntoView({behavior:"smooth"}),180)});document.querySelector("#catalog-search")?.addEventListener("input",t=>{J=t.currentTarget.value,K()});document.querySelector("#catalog-sort")?.addEventListener("change",t=>{X=t.currentTarget.value,K()});document.querySelector("#reset-catalog")?.addEventListener("click",()=>{M=null,J="";const t=document.querySelector("#catalog-search");t&&(t.value="");const e=document.querySelector("#fit-message");e&&(e.textContent=""),K()});document.querySelector("#calculator-product-select")?.addEventListener("change",t=>{et(t.currentTarget.value)});document.querySelector("#hero-product-select")?.addEventListener("change",t=>{et(t.currentTarget.value)});document.querySelector("#quantity-input")?.addEventListener("input",t=>{N(Number(t.currentTarget.value))});document.querySelector("#hero-quantity-input")?.addEventListener("input",t=>{N(Number(t.currentTarget.value))});document.querySelector("#request-form")?.addEventListener("submit",t=>{t.preventDefault(),Pt(t.currentTarget)});document.addEventListener("click",t=>{const e=t.target,a=e.closest("[data-open-product]");if(a?.dataset.openProduct){pt(a.dataset.openProduct);return}const n=e.closest("[data-quantity]");if(n?.dataset.quantity){N(Number(n.dataset.quantity));return}const s=e.closest("[data-quantity-step]");if(s?.dataset.quantityStep){N(d+Number(s.dataset.quantityStep));return}if(e.closest("[data-product-to-cart]")){ot(L??P,d),document.querySelector("#product-dialog")?.close(),L=null;return}if(e.closest("[data-add-selected-to-cart]")){ot(P,d);return}const o=e.closest("[data-remove-cart]");if(o?.dataset.removeCart){Lt(o.dataset.removeCart);return}if(e.closest("[data-product-to-calculator]")){document.querySelector("#product-dialog")?.close(),L=null,window.location.hash="calculator",document.querySelector("#calculator")?.scrollIntoView({behavior:"smooth",block:"start"});return}const i=e.closest("[data-close-dialog]");if(i){i.closest("dialog")?.close(),L=null;return}const r=e.closest("[data-auth-tab]");if(r?.dataset.authTab){const c=r.closest(".auth-forms");c?.querySelectorAll("[data-auth-tab]").forEach(l=>{const p=l.dataset.authTab===r.dataset.authTab;l.classList.toggle("is-active",p),l.setAttribute("aria-selected",String(p))}),c?.querySelectorAll("[data-auth-panel]").forEach(l=>{l.hidden=l.dataset.authPanel!==r.dataset.authTab});return}if(e.closest("#logout-button")){localStorage.removeItem(g.session),D(),T(),w(!1),O();return}e.closest("#admin-logout")&&(localStorage.removeItem(g.session),D(),T(),w(!1),k())});document.addEventListener("input",t=>{const e=t.target;e instanceof HTMLInputElement&&e.id==="modal-quantity-input"&&N(Number(e.value))});document.addEventListener("keydown",t=>{if(t.key!=="Enter"&&t.key!==" ")return;const e=t.target;!(e instanceof HTMLElement)||!e.matches(".product-card")||(t.preventDefault(),e.dataset.openProduct&&pt(e.dataset.openProduct))});document.addEventListener("submit",t=>{const e=t.target;e instanceof HTMLFormElement&&(e.id==="login-form"?(t.preventDefault(),rt(e)):e.id==="register-form"?(t.preventDefault(),kt(e)):e.id==="admin-login-form"&&(t.preventDefault(),rt(e,!0)))});document.addEventListener("change",t=>{const e=t.target;if(e instanceof HTMLInputElement||e instanceof HTMLSelectElement){if(e instanceof HTMLInputElement&&e.dataset.cartQuantity){xt(e.dataset.cartQuantity,Number(e.value));return}if(e instanceof HTMLSelectElement&&e.dataset.orderStatus){const a=z(),n=a.find(s=>s.id===e.dataset.orderStatus);n&&(n.status=e.value,v(g.orders,a),k());return}if(e instanceof HTMLInputElement&&e.dataset.partnerToggle){const a=E(),n=a.find(s=>s.id===e.dataset.partnerToggle);n&&(n.partner=e.checked,v(g.accounts,a),k());return}if(e instanceof HTMLInputElement&&e.dataset.partnerMarkup){const a=E(),n=a.find(s=>s.id===e.dataset.partnerMarkup);n&&(n.fixedMarkup=Math.min(.99,Math.max(0,Number(e.value)||0)),v(g.accounts,a),k())}}});document.querySelector("#product-dialog")?.addEventListener("click",t=>{t.target===t.currentTarget&&(t.currentTarget.close(),L=null)});window.addEventListener("hashchange",gt);w(!0);window.setTimeout(()=>w(!1),460);T();D();gt();Et();
+  `}function ht(){const t=document.querySelector("#admin-page"),e=document.querySelector("#account-page"),a=document.querySelector("#main"),n=document.querySelector(".site-header"),s=document.querySelector(".site-footer"),o=document.querySelector(".demo-strip"),i=window.location.hash==="#admin",r=window.location.hash==="#account";t&&(t.hidden=!i),e&&(e.hidden=!r),a&&(a.hidden=i||r),n&&(n.hidden=i||r),s&&(s.hidden=i||r),o&&(o.hidden=i||r),document.body.classList.toggle("is-admin",i),document.body.classList.toggle("is-account",r),i?(k(),window.scrollTo({top:0})):r&&(O(),window.scrollTo({top:0}))}function Et(){const t=document.querySelectorAll(".reveal");if(!("IntersectionObserver"in window)){t.forEach(a=>a.classList.add("is-visible"));return}const e=new IntersectionObserver(a=>{a.forEach(n=>{n.isIntersecting&&(n.target.classList.add("is-visible"),e.unobserve(n.target))})},{threshold:.12});t.forEach(a=>e.observe(a))}document.querySelector("#menu-button")?.addEventListener("click",t=>{const e=t.currentTarget,a=document.querySelector("#site-nav"),n=e.getAttribute("aria-expanded")!=="true";e.setAttribute("aria-expanded",String(n)),a?.classList.toggle("is-open",n)});document.querySelectorAll(".site-nav a").forEach(t=>{t.addEventListener("click",()=>{document.querySelector("#site-nav")?.classList.remove("is-open"),document.querySelector("#menu-button")?.setAttribute("aria-expanded","false")})});document.querySelector("#fit-form")?.addEventListener("submit",t=>{t.preventDefault();const e=t.currentTarget;e.classList.add("was-validated");const a=document.querySelector("#fit-message");if(!e.reportValidity()){a&&(a.textContent="Вкажіть три додатні розміри.",a.className="form-message is-error");return}const n=new FormData(e);M={length:Number(n.get("length")),width:Number(n.get("width")),height:Number(n.get("height"))},a&&(a.textContent="Розміри застосовано. Показуємо коробки нижче.",a.className="form-message is-success"),K(),window.setTimeout(()=>document.querySelector("#catalog")?.scrollIntoView({behavior:"smooth"}),180)});document.querySelector("#catalog-search")?.addEventListener("input",t=>{J=t.currentTarget.value,K()});document.querySelector("#catalog-sort")?.addEventListener("change",t=>{X=t.currentTarget.value,K()});document.querySelector("#reset-catalog")?.addEventListener("click",()=>{M=null,J="";const t=document.querySelector("#catalog-search");t&&(t.value="");const e=document.querySelector("#fit-message");e&&(e.textContent=""),K()});document.querySelector("#calculator-product-select")?.addEventListener("change",t=>{et(t.currentTarget.value)});document.querySelector("#hero-product-select")?.addEventListener("change",t=>{et(t.currentTarget.value)});document.querySelector("#quantity-input")?.addEventListener("input",t=>{N(Number(t.currentTarget.value))});document.querySelector("#hero-quantity-input")?.addEventListener("input",t=>{N(Number(t.currentTarget.value))});document.querySelector("#request-form")?.addEventListener("submit",t=>{t.preventDefault(),Pt(t.currentTarget)});document.addEventListener("click",t=>{const e=t.target,a=e.closest("[data-open-product]");if(a?.dataset.openProduct){pt(a.dataset.openProduct);return}const n=e.closest("[data-quantity]");if(n?.dataset.quantity){N(Number(n.dataset.quantity));return}const s=e.closest("[data-quantity-step]");if(s?.dataset.quantityStep){N(d+Number(s.dataset.quantityStep));return}if(e.closest("[data-product-to-cart]")){ot(L??P,d),document.querySelector("#product-dialog")?.close(),L=null;return}if(e.closest("[data-add-selected-to-cart]")){ot(P,d);return}const o=e.closest("[data-remove-cart]");if(o?.dataset.removeCart){Lt(o.dataset.removeCart);return}if(e.closest("[data-product-to-calculator]")){document.querySelector("#product-dialog")?.close(),L=null,window.location.hash="calculator",document.querySelector("#calculator")?.scrollIntoView({behavior:"smooth",block:"start"});return}const i=e.closest("[data-close-dialog]");if(i){i.closest("dialog")?.close(),L=null;return}const r=e.closest("[data-auth-tab]");if(r?.dataset.authTab){const c=r.closest(".auth-forms");c?.querySelectorAll("[data-auth-tab]").forEach(l=>{const p=l.dataset.authTab===r.dataset.authTab;l.classList.toggle("is-active",p),l.setAttribute("aria-selected",String(p))}),c?.querySelectorAll("[data-auth-panel]").forEach(l=>{l.hidden=l.dataset.authPanel!==r.dataset.authTab});return}if(e.closest("#logout-button")){localStorage.removeItem(h.session),D(),T(),w(!1),O();return}e.closest("#admin-logout")&&(localStorage.removeItem(h.session),D(),T(),w(!1),k())});document.addEventListener("input",t=>{const e=t.target;e instanceof HTMLInputElement&&e.id==="modal-quantity-input"&&N(Number(e.value))});document.addEventListener("keydown",t=>{if(t.key!=="Enter"&&t.key!==" ")return;const e=t.target;!(e instanceof HTMLElement)||!e.matches(".product-card")||(t.preventDefault(),e.dataset.openProduct&&pt(e.dataset.openProduct))});document.addEventListener("submit",t=>{const e=t.target;e instanceof HTMLFormElement&&(e.id==="login-form"?(t.preventDefault(),rt(e)):e.id==="register-form"?(t.preventDefault(),kt(e)):e.id==="admin-login-form"&&(t.preventDefault(),rt(e,!0)))});document.addEventListener("change",t=>{const e=t.target;if(e instanceof HTMLInputElement||e instanceof HTMLSelectElement){if(e instanceof HTMLInputElement&&e.dataset.cartQuantity){xt(e.dataset.cartQuantity,Number(e.value));return}if(e instanceof HTMLSelectElement&&e.dataset.orderStatus){const a=z(),n=a.find(s=>s.id===e.dataset.orderStatus);n&&(n.status=e.value,b(h.orders,a),k());return}if(e instanceof HTMLInputElement&&e.dataset.partnerToggle){const a=E(),n=a.find(s=>s.id===e.dataset.partnerToggle);n&&(n.partner=e.checked,b(h.accounts,a),k());return}if(e instanceof HTMLInputElement&&e.dataset.partnerMarkup){const a=E(),n=a.find(s=>s.id===e.dataset.partnerMarkup);n&&(n.fixedMarkup=Math.min(.99,Math.max(0,Number(e.value)||0)),b(h.accounts,a),k())}}});document.querySelector("#product-dialog")?.addEventListener("click",t=>{t.target===t.currentTarget&&(t.currentTarget.close(),L=null)});window.addEventListener("hashchange",ht);w(!0);window.setTimeout(()=>w(!1),460);T();D();ht();Et();
