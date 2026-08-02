@@ -276,7 +276,8 @@ function productOptions(): string {
 function storefrontTemplate(): string {
   const product = selectedProduct();
   return `
-    <header class="site-header" id="top">
+    <div class="page-top-sentinel" id="top" aria-hidden="true"></div>
+    <header class="site-header">
       <a class="brand" href="#top" aria-label="ToffiPacks — на головну">
         <span class="brand__mark"><img src="./toffipacks-logo.webp" alt="" /></span>
         <span class="brand__copy"><strong>TOFFIPACKS</strong><small>самозбірні коробки</small></span>
@@ -408,14 +409,26 @@ function storefrontTemplate(): string {
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m16 16 4 4"></path></svg>
             <input id="catalog-search" type="search" placeholder="Номер або розмір" autocomplete="off" />
           </label>
-          <label class="sort-field">
-            <span>Сортувати</span>
-            <select class="select" id="catalog-sort">
-              <option value="size">Від компактних</option>
-              <option value="price">За ціною</option>
-              <option value="number">За номером</option>
-            </select>
-          </label>
+          <div class="sort-field">
+            <span id="catalog-sort-label">Сортувати</span>
+            <div class="catalog-sort" id="catalog-sort" data-value="size">
+              <button
+                class="catalog-sort__trigger"
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded="false"
+                aria-labelledby="catalog-sort-label catalog-sort-value"
+              >
+                <span id="catalog-sort-value">Від компактних</span>
+                <i aria-hidden="true"></i>
+              </button>
+              <div class="catalog-sort__menu" role="listbox" aria-labelledby="catalog-sort-label" hidden>
+                <button type="button" role="option" data-sort-value="size" aria-selected="true"><span>Від компактних</span><i aria-hidden="true"></i></button>
+                <button type="button" role="option" data-sort-value="price" aria-selected="false"><span>За ціною</span><i aria-hidden="true"></i></button>
+                <button type="button" role="option" data-sort-value="number" aria-selected="false"><span>За номером</span><i aria-hidden="true"></i></button>
+              </div>
+            </div>
+          </div>
           <button class="button button--ghost button--small" id="reset-catalog" type="button">Скинути підбір</button>
         </div>
         <div class="catalog-meta">
@@ -1545,6 +1558,18 @@ document.querySelectorAll<HTMLAnchorElement>('.site-nav a').forEach((link) => {
   });
 });
 
+document.querySelector<HTMLAnchorElement>('.site-header .brand[href="#top"]')?.addEventListener('click', (event) => {
+  event.preventDefault();
+  if (window.location.hash !== '#top') {
+    window.history.pushState(null, '', '#top');
+    syncRoute();
+  }
+  window.scrollTo({
+    top: 0,
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+  });
+});
+
 document.querySelector<HTMLFormElement>('#fit-form')?.addEventListener('submit', (event) => {
   event.preventDefault();
   const form = event.currentTarget as HTMLFormElement;
@@ -1576,9 +1601,77 @@ document.querySelector<HTMLInputElement>('#catalog-search')?.addEventListener('i
   queueCatalogRender();
 });
 
-document.querySelector<HTMLSelectElement>('#catalog-sort')?.addEventListener('change', (event) => {
-  catalogSort = (event.currentTarget as HTMLSelectElement).value as CatalogSort;
+const catalogSortControl = document.querySelector<HTMLElement>('#catalog-sort');
+const catalogSortTrigger = catalogSortControl?.querySelector<HTMLButtonElement>('.catalog-sort__trigger');
+const catalogSortMenu = catalogSortControl?.querySelector<HTMLElement>('.catalog-sort__menu');
+const catalogSortOptions = Array.from(
+  catalogSortControl?.querySelectorAll<HTMLButtonElement>('[data-sort-value]') ?? [],
+);
+
+function closeCatalogSort(restoreFocus = false): void {
+  if (!catalogSortTrigger || !catalogSortMenu) return;
+  catalogSortTrigger.setAttribute('aria-expanded', 'false');
+  catalogSortMenu.hidden = true;
+  catalogSortControl?.classList.remove('is-open');
+  if (restoreFocus) catalogSortTrigger.focus();
+}
+
+function openCatalogSort(): void {
+  if (!catalogSortTrigger || !catalogSortMenu) return;
+  catalogSortTrigger.setAttribute('aria-expanded', 'true');
+  catalogSortMenu.hidden = false;
+  catalogSortControl?.classList.add('is-open');
+}
+
+function selectCatalogSort(value: CatalogSort): void {
+  const option = catalogSortOptions.find((item) => item.dataset.sortValue === value);
+  const valueLabel = document.querySelector<HTMLElement>('#catalog-sort-value');
+  if (!option || !catalogSortControl || !valueLabel) return;
+  catalogSort = value;
+  catalogSortControl.dataset.value = value;
+  valueLabel.textContent = option.querySelector('span')?.textContent ?? option.textContent;
+  catalogSortOptions.forEach((item) => {
+    item.setAttribute('aria-selected', String(item === option));
+  });
+  closeCatalogSort(true);
   queueCatalogRender();
+}
+
+catalogSortTrigger?.addEventListener('click', () => {
+  if (catalogSortMenu?.hidden) {
+    openCatalogSort();
+  } else {
+    closeCatalogSort();
+  }
+});
+
+catalogSortOptions.forEach((option) => {
+  option.addEventListener('click', () => {
+    selectCatalogSort(option.dataset.sortValue as CatalogSort);
+  });
+});
+
+catalogSortControl?.addEventListener('keydown', (event) => {
+  const activeIndex = catalogSortOptions.indexOf(document.activeElement as HTMLButtonElement);
+  const selectedIndex = catalogSortOptions.findIndex((option) => option.getAttribute('aria-selected') === 'true');
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeCatalogSort(true);
+    return;
+  }
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return;
+  event.preventDefault();
+  if (catalogSortMenu?.hidden) openCatalogSort();
+  let nextIndex = activeIndex >= 0 ? activeIndex : selectedIndex;
+  if (event.key === 'Home') nextIndex = 0;
+  if (event.key === 'End') nextIndex = catalogSortOptions.length - 1;
+  if (event.key === 'ArrowDown') nextIndex = (nextIndex + 1) % catalogSortOptions.length;
+  if (event.key === 'ArrowUp') nextIndex = (nextIndex - 1 + catalogSortOptions.length) % catalogSortOptions.length;
+  catalogSortOptions[nextIndex]?.focus();
+});
+
+document.addEventListener('click', (event) => {
+  if (!catalogSortControl?.contains(event.target as Node)) closeCatalogSort();
 });
 
 document.querySelector<HTMLButtonElement>('#reset-catalog')?.addEventListener('click', () => {
