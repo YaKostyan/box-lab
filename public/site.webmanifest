@@ -1,0 +1,17 @@
+{
+  "name": "ToffiPacks",
+  "short_name": "ToffiPacks",
+  "description": "Підбір коробок за внутрішніми розмірами та розрахунок вартості тиражу.",
+  "lang": "uk-UA",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#fbfaf6",
+  "theme_color": "#173f31",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

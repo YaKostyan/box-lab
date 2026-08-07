@@ -26,6 +26,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.16.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify business rules
+        run: pnpm test
+
+      - name: Type-check
+        run: pnpm check
+
+      - name: Build production site
+        run: pnpm build
+
+      - name: Verify standalone bundle
+        run: |
+          node scripts/make-standalone.mjs
+          node scripts/check-standalone.mjs
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
         with:

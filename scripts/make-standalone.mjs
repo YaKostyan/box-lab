@@ -35,6 +35,8 @@ html = html
   .replace(stylesheetTag[0], () => bundledStylesheet)
   .replace(scriptTag[0], () => bundledScript)
   .replace(/href="\.\/favicon\.svg"/, () => `href="${faviconData}"`)
+  .replaceAll('https://yakostyan.github.io/box-lab/toffipacks-logo.webp', logoData)
+  .replace(/\s*<link rel="manifest"[^>]*>/, '')
   .replace(
     '<title>',
     '<!-- Відкрийте цей файл подвійним кліком: інсталяція не потрібна. --><title>',

@@ -48,6 +48,7 @@ interface Order {
   total: number;
   accountId?: string;
   status: OrderStatus;
+  managerNote?: string;
 }
 
 interface OrderItem {
@@ -74,6 +75,8 @@ const STORAGE = {
   cart: 'toffipacks-cart-v1',
   products: 'toffipacks-products-v1',
 };
+
+const PRODUCT_NUMBER_PATTERN = /^[\p{L}\p{N}._-]+$/u;
 
 const now = new Date().toISOString();
 const seedAccounts: Account[] = [
@@ -134,6 +137,7 @@ let selectedProductId = 'box-101';
 let selectedQuantity = 500;
 let catalogSearch = '';
 let catalogSort: CatalogSort = 'size';
+let catalogExpanded = false;
 let fitDimensions: Dimensions | null = null;
 let catalogTimer: number | undefined;
 let activeProductDialogId: string | null = null;
@@ -141,6 +145,7 @@ let adminProductSearch = '';
 let adminProductVisibility: ProductVisibility = 'all';
 let adminOrderSearch = '';
 let adminOrderStatus: OrderStatus | 'Усі' = 'Усі';
+let adminOrderDate = '';
 let adminNotice = '';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -288,7 +293,7 @@ function boxDiagram(product: Product, compact = false): string {
         <rect class="box-visual__front" x="${x}" y="${y}" width="${lengthScale}" height="${heightScale}" />
         <rect class="box-visual__mark" x="${x + lengthScale * 0.35}" y="${y + heightScale * 0.32}"
           width="${lengthScale * 0.3}" height="${Math.max(24, heightScale * 0.34)}" rx="5" />
-        <text class="box-visual__number" x="${x + lengthScale / 2}" y="${y + heightScale * 0.56}">№${product.number}</text>
+        <text class="box-visual__number" x="${x + lengthScale / 2}" y="${y + heightScale * 0.56}">№${escapeHtml(product.number)}</text>
       </g>
       <g class="dimension-line dimension-line--length">
         <line x1="${x}" y1="${baseline + 28}" x2="${rightX}" y2="${baseline + 28}" />
@@ -317,7 +322,7 @@ function productOptions(): string {
   return visibleProducts()
     .map(
       (product) =>
-        `<option value="${product.id}"${product.id === selectedProductId ? ' selected' : ''}>№${product.number} · ${dimensionText(product.dimensions)}</option>`,
+        `<option value="${escapeHtml(product.id)}"${product.id === selectedProductId ? ' selected' : ''}>№${escapeHtml(product.number)} · ${dimensionText(product.dimensions)}</option>`,
     )
     .join('');
 }
@@ -484,6 +489,9 @@ function storefrontTemplate(): string {
           <p id="catalog-count" aria-live="polite"></p>
         </div>
         <div class="product-grid" id="product-grid" aria-live="polite"></div>
+        <div class="catalog-more" id="catalog-more" hidden>
+          <button class="button button--ghost" id="catalog-more-button" type="button" aria-expanded="false"></button>
+        </div>
       </section>
 
       <section class="section calculator-section" id="calculator">
@@ -787,6 +795,11 @@ function storefrontTemplate(): string {
       <button class="dialog-close" type="button" data-close-dialog aria-label="Закрити">×</button>
       <div id="product-dialog-content"></div>
     </dialog>
+
+    <dialog class="profile-dialog" id="profile-dialog" aria-labelledby="profile-dialog-title">
+      <button class="dialog-close" type="button" data-close-profile aria-label="Закрити">×</button>
+      <div id="profile-dialog-content"></div>
+    </dialog>
   `;
 }
 
@@ -803,13 +816,10 @@ function productCard(product: Product): string {
   return `
     <article
       class="product-card${product.id === selectedProductId ? ' is-selected' : ''}"
-      data-open-product="${product.id}"
-      tabindex="0"
-      role="button"
-      aria-label="Відкрити коробку №${product.number}, ${dimensionText(product.dimensions)}"
+      data-product-card="${escapeHtml(product.id)}"
     >
       <div class="product-card__head">
-        <span class="product-card__number">№${product.number}</span>
+        <span class="product-card__number">№${escapeHtml(product.number)}</span>
         <span class="product-card__size-label">внутрішній розмір</span>
       </div>
       <div class="product-card__visual">${boxDiagram(product, true)}</div>
@@ -824,9 +834,13 @@ function productCard(product: Product): string {
             `
         }
       </div>
-      <button class="button button--card" type="button" data-open-product="${product.id}">
-        Детальніше
-      </button>
+      <span class="button button--card product-card__cta" aria-hidden="true">Детальніше</span>
+      <button
+        class="product-card__open"
+        type="button"
+        data-open-product="${escapeHtml(product.id)}"
+        aria-label="Відкрити коробку №${escapeHtml(product.number)}, ${dimensionText(product.dimensions)}"
+      ></button>
     </article>
   `;
 }
@@ -839,7 +853,7 @@ function productDialogContent(product: Product): string {
     <div class="product-modal">
       <div class="product-modal__visual">
         <div class="product-modal__labels">
-          <span>№${product.number}</span>
+          <span>№${escapeHtml(product.number)}</span>
         </div>
         <div class="product-modal__drawing">${boxDiagram(product, true)}</div>
         <p>Внутрішній розмір · Д × Ш × В</p>
@@ -936,8 +950,11 @@ function filteredProducts(): Product[] {
 
 function renderCatalog(loading = false): void {
   if (!productGrid || !catalogCount) return;
+  const more = document.querySelector<HTMLElement>('#catalog-more');
+  const moreButton = document.querySelector<HTMLButtonElement>('#catalog-more-button');
   if (loading) {
     catalogCount.textContent = 'Оновлюємо список…';
+    if (more) more.hidden = true;
     productGrid.innerHTML = Array.from(
       { length: 6 },
       () => '<div class="product-skeleton" aria-hidden="true"><i></i><i></i><i></i></div>',
@@ -957,9 +974,18 @@ function renderCatalog(loading = false): void {
         <a class="button button--primary" href="#request">Описати свій розмір</a>
       </div>
     `;
+    if (more) more.hidden = true;
     return;
   }
-  productGrid.innerHTML = result.map(productCard).join('');
+  const isMobile = window.matchMedia('(max-width: 680px)').matches;
+  const canCollapse = isMobile && !catalogSearch.trim() && !fitDimensions && result.length > 4;
+  const visibleResult = canCollapse && !catalogExpanded ? result.slice(0, 4) : result;
+  productGrid.innerHTML = visibleResult.map(productCard).join('');
+  if (more && moreButton) {
+    more.hidden = !canCollapse;
+    moreButton.textContent = catalogExpanded ? 'Згорнути каталог' : `Показати всі ${result.length} розмірів`;
+    moreButton.setAttribute('aria-expanded', String(catalogExpanded));
+  }
 }
 
 function queueCatalogRender(): void {
@@ -1113,20 +1139,20 @@ function renderCart(): void {
       cartTotal += lineTotal;
       return `
         <article class="cart-item">
-          <div class="cart-item__index">№${product.number}</div>
+          <div class="cart-item__index">№${escapeHtml(product.number)}</div>
           <div class="cart-item__info">
             <strong>${dimensionText(product.dimensions)}</strong>
             <span>${formatMoney(price)} / шт.</span>
           </div>
           <label class="cart-item__quantity">
             <span>Кількість</span>
-            <input class="input" type="number" min="1" max="${MAX_QUANTITY}" value="${item.quantity}" data-cart-quantity="${product.id}" />
+            <input class="input" type="number" min="1" max="${MAX_QUANTITY}" value="${item.quantity}" data-cart-quantity="${escapeHtml(product.id)}" />
           </label>
           <div class="cart-item__total">
             <span>Сума</span>
             <strong>${formatMoney(lineTotal)}</strong>
           </div>
-          <button class="cart-item__remove" type="button" data-remove-cart="${product.id}" aria-label="Прибрати коробку №${product.number} з кошика">×</button>
+          <button class="cart-item__remove" type="button" data-remove-cart="${escapeHtml(product.id)}" aria-label="Прибрати коробку №${escapeHtml(product.number)} з кошика">×</button>
         </article>
       `;
     })
@@ -1244,13 +1270,13 @@ function accountPageContent(): string {
             <article class="account-quick-order">
               <p class="technical-label">Швидкий розрахунок</p>
               <div class="account-quick-order__box">${boxDiagram(product, false)}</div>
-              <span>Коробка №${product.number}</span>
+              <span>Коробка №${escapeHtml(product.number)}</span>
               <h3>${dimensionText(product.dimensions)}</h3>
               <div><span>${selectedQuantity.toLocaleString('uk-UA')} шт.</span><strong>${formatMoney(personalPrice * selectedQuantity)}</strong></div>
               <button class="button button--gold button--wide" type="button" data-add-selected-to-cart>Додати до кошика</button>
             </article>
             <article class="account-profile-card">
-              <div><p class="technical-label">Профіль</p><a href="#account">Дані клієнта</a></div>
+              <div><p class="technical-label">Профіль</p><button class="text-link" type="button" data-edit-profile>Дані клієнта</button></div>
               <dl>
                 <div><dt>Телефон</dt><dd>${escapeHtml(account.phone)}</dd></div>
                 <div><dt>Компанія</dt><dd>${escapeHtml(account.company || 'Не вказано')}</dd></div>
@@ -1300,6 +1326,80 @@ function accountPageContent(): string {
 function renderAccountPage(): void {
   const content = document.querySelector<HTMLDivElement>('#account-page-content');
   if (content) content.innerHTML = accountPageContent();
+}
+
+function profileEditorMarkup(account: Account): string {
+  return `
+    <div class="profile-editor">
+      <p class="eyebrow"><span></span> Дані клієнта</p>
+      <h2 id="profile-dialog-title">Оновити профіль.</h2>
+      <p>Телефон використовується для входу та зв’язку щодо заявки.</p>
+      <form id="profile-form" novalidate>
+        <label class="field"><span>Ім’я *</span><input class="input" name="name" value="${escapeHtml(account.name)}" autocomplete="name" required /></label>
+        <label class="field"><span>Телефон *</span><input class="input" name="phone" type="tel" inputmode="tel" autocomplete="tel" value="${escapeHtml(account.phone)}" pattern="[+]?380[0-9]{9}" required /></label>
+        <label class="field"><span>Компанія</span><input class="input" name="company" value="${escapeHtml(account.company)}" autocomplete="organization" /></label>
+        <label class="field"><span>Новий пароль</span><input class="input" name="password" type="password" minlength="6" autocomplete="new-password" placeholder="Залиште порожнім, щоб не змінювати" /></label>
+        <div class="form-status" data-profile-status aria-live="polite"></div>
+        <div class="profile-editor__actions">
+          <button class="button button--ghost" type="button" data-close-profile>Скасувати</button>
+          <button class="button button--primary" type="submit">Зберегти дані</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+function openProfileEditor(): void {
+  const account = currentAccount();
+  const dialog = document.querySelector<HTMLDialogElement>('#profile-dialog');
+  const content = document.querySelector<HTMLElement>('#profile-dialog-content');
+  if (!account || !dialog || !content) return;
+  content.innerHTML = profileEditorMarkup(account);
+  if (typeof dialog.showModal === 'function') dialog.showModal();
+  else dialog.setAttribute('open', '');
+  content.querySelector<HTMLInputElement>('input[name="name"]')?.focus();
+}
+
+function handleProfileSave(form: HTMLFormElement): void {
+  form.classList.add('was-validated');
+  const status = form.querySelector<HTMLElement>('[data-profile-status]');
+  if (!form.reportValidity()) {
+    if (status) {
+      status.className = 'form-status is-error';
+      status.textContent = 'Перевірте ім’я, телефон і новий пароль.';
+    }
+    return;
+  }
+  const current = currentAccount();
+  if (!current) return;
+  const data = new FormData(form);
+  const phone = normalizePhone(String(data.get('phone') ?? ''));
+  const stored = accounts();
+  if (stored.some((account) => account.id !== current.id && phoneKey(account.phone) === phoneKey(phone))) {
+    if (status) {
+      status.className = 'form-status is-error';
+      status.textContent = 'Акаунт із таким номером уже існує.';
+    }
+    return;
+  }
+  const password = String(data.get('password') ?? '');
+  const updated = stored.map((account) =>
+    account.id === current.id
+      ? {
+          ...account,
+          name: String(data.get('name') ?? '').trim(),
+          phone,
+          company: String(data.get('company') ?? '').trim(),
+          password: password || account.password,
+        }
+      : account,
+  );
+  writeStorage(STORAGE.accounts, updated);
+  document.querySelector<HTMLDialogElement>('#profile-dialog')?.close();
+  renderAccountButton();
+  renderAccountPage();
+  renderCalculator();
+  renderCatalog(false);
 }
 
 function setFormStatus(form: HTMLFormElement, message: string, type: 'error' | 'success'): void {
@@ -1505,7 +1605,7 @@ function adminFrame(account: Account, view: AdminView, content: string): string 
 function adminOrderCard(order: Order): string {
   const searchable = `${order.id} ${order.customerName} ${order.phone} ${order.company}`.toLocaleLowerCase('uk-UA');
   return `
-    <article class="order-card" data-admin-order data-status="${escapeHtml(order.status)}" data-search="${escapeHtml(searchable)}">
+    <article class="order-card" data-admin-order data-status="${escapeHtml(order.status)}" data-date="${order.createdAt.slice(0, 10)}" data-search="${escapeHtml(searchable)}">
       <div class="order-card__top">
         <div><span>${escapeHtml(order.id)}</span><strong>${escapeHtml(order.customerName)}</strong></div>
         <select class="select status-select" data-order-status="${escapeHtml(order.id)}">${orderStatusOptions(order.status)}</select>
@@ -1530,6 +1630,10 @@ function adminOrderCard(order: Order): string {
           .join('')}
       </div>
       ${order.company || order.comment ? `<p class="order-card__comment">${escapeHtml(order.company)}${order.company && order.comment ? ' · ' : ''}${escapeHtml(order.comment)}</p>` : ''}
+      <label class="order-card__manager-note">
+        <span>Нотатка менеджера</span>
+        <textarea data-order-note="${escapeHtml(order.id)}" rows="2" placeholder="Домовленості після дзвінка, дата або деталі">${escapeHtml(order.managerNote ?? '')}</textarea>
+      </label>
       <time datetime="${order.createdAt}">${new Date(order.createdAt).toLocaleString('uk-UA')}</time>
     </article>
   `;
@@ -1574,6 +1678,7 @@ function adminOrdersPage(storedOrders: Order[]): string {
     </div>
     <div class="admin-toolbar">
       <label class="admin-search"><span class="sr-only">Пошук заявок</span><input id="admin-order-search" type="search" value="${escapeHtml(adminOrderSearch)}" placeholder="Номер, ім’я або телефон" /></label>
+      <label class="admin-date-filter"><span class="sr-only">Дата заявки</span><input id="admin-order-date" type="date" value="${escapeHtml(adminOrderDate)}" /></label>
       <div class="admin-filter-chips" aria-label="Фільтр за статусом">
         ${statuses.map((status) => `<button class="${adminOrderStatus === status ? 'is-active' : ''}" type="button" data-admin-order-filter="${status}">${status}</button>`).join('')}
       </div>
@@ -1664,7 +1769,8 @@ function adminProductsPage(): string {
         <button class="${adminProductVisibility === 'active' ? 'is-active' : ''}" type="button" data-product-filter="active">На сайті</button>
         <button class="${adminProductVisibility === 'hidden' ? 'is-active' : ''}" type="button" data-product-filter="hidden">Приховані</button>
       </div>
-      <button class="button button--ghost button--small" type="button" data-export-products>Експорт</button>
+      <button class="button button--ghost button--small" type="button" data-export-products>Експорт CSV</button>
+      <label class="button button--ghost button--small admin-file-button">Імпорт CSV<input type="file" accept=".csv,text/csv" data-import-products /></label>
       <button class="admin-danger-link" type="button" data-reset-products>Відновити початкові</button>
     </div>
     <div class="admin-results-meta"><strong id="admin-product-count">${filteredAdminProducts().length}</strong><span>товарів показано</span></div>
@@ -1710,7 +1816,8 @@ function filterAdminOrders(): void {
   document.querySelectorAll<HTMLElement>('[data-admin-order]').forEach((card) => {
     const matchesSearch = !search || (card.dataset.search ?? '').includes(search);
     const matchesStatus = adminOrderStatus === 'Усі' || card.dataset.status === adminOrderStatus;
-    card.hidden = !(matchesSearch && matchesStatus);
+    const matchesDate = !adminOrderDate || card.dataset.date === adminOrderDate;
+    card.hidden = !(matchesSearch && matchesStatus && matchesDate);
     if (!card.hidden) visible += 1;
   });
   const count = document.querySelector<HTMLElement>('#admin-order-count');
@@ -1820,6 +1927,13 @@ function handleAdminProductSave(form: HTMLFormElement): void {
   const number = String(data.get('number') ?? '').trim();
   const stored = catalogItems();
   const existing = stored.find((product) => product.id === productId);
+  if (!PRODUCT_NUMBER_PATTERN.test(number)) {
+    if (status) {
+      status.className = 'form-status is-error';
+      status.textContent = 'У номері можна використовувати літери, цифри, крапку, дефіс і підкреслення.';
+    }
+    return;
+  }
   if (stored.some((product) => product.number.toLocaleLowerCase('uk-UA') === number.toLocaleLowerCase('uk-UA') && product.id !== productId)) {
     if (status) {
       status.className = 'form-status is-error';
@@ -1866,6 +1980,130 @@ function downloadJson(filename: string, value: unknown): void {
   link.download = filename;
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function downloadText(filename: string, value: string, type: string): void {
+  const blob = new Blob([value], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function csvCell(value: string | number | boolean): string {
+  const text = String(value);
+  return /[;"\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function productsCsv(): string {
+  const header = ['number', 'name', 'length', 'width', 'height', 'basePrice', 'active'];
+  const rows = catalogItems().map((product) =>
+    [
+      product.number,
+      product.name,
+      product.dimensions.length,
+      product.dimensions.width,
+      product.dimensions.height,
+      product.basePrice,
+      product.active,
+    ]
+      .map(csvCell)
+      .join(';'),
+  );
+  return `\uFEFF${[header.join(';'), ...rows].join('\r\n')}`;
+}
+
+function parseCsv(value: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let quoted = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === '"') {
+      if (quoted && value[index + 1] === '"') {
+        cell += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === ';' && !quoted) {
+      row.push(cell.trim());
+      cell = '';
+    } else if ((character === '\n' || character === '\r') && !quoted) {
+      if (character === '\r' && value[index + 1] === '\n') index += 1;
+      row.push(cell.trim());
+      if (row.some(Boolean)) rows.push(row);
+      row = [];
+      cell = '';
+    } else {
+      cell += character;
+    }
+  }
+  row.push(cell.trim());
+  if (row.some(Boolean)) rows.push(row);
+  return rows;
+}
+
+function importedProducts(csv: string): ManagedProduct[] {
+  const rows = parseCsv(csv.replace(/^\uFEFF/, ''));
+  const headers = rows.shift()?.map((header) => header.trim()) ?? [];
+  const required = ['number', 'name', 'length', 'width', 'height', 'basePrice', 'active'];
+  if (!required.every((header) => headers.includes(header))) {
+    throw new Error(`Потрібні колонки: ${required.join(', ')}`);
+  }
+  const position = Object.fromEntries(headers.map((header, index) => [header, index]));
+  const stored = catalogItems();
+  const byNumber = new Map(stored.map((product) => [product.number.toLocaleLowerCase('uk-UA'), product]));
+  const imported = rows.map((cells) => {
+    const value = (name: string): string => cells[position[name]]?.trim() ?? '';
+    const number = value('number');
+    const numeric = (name: string): number => Number(value(name).replace(',', '.'));
+    const dimensions = { length: numeric('length'), width: numeric('width'), height: numeric('height') };
+    const basePrice = numeric('basePrice');
+    if (
+      !PRODUCT_NUMBER_PATTERN.test(number) ||
+      !Object.values(dimensions).every((side) => Number.isFinite(side) && side > 0) ||
+      !Number.isFinite(basePrice) ||
+      basePrice <= 0
+    ) {
+      throw new Error(`Некоректні дані для коробки ${number || 'без номера'}.`);
+    }
+    const existing = byNumber.get(number.toLocaleLowerCase('uk-UA'));
+    const activeValue = value('active').toLocaleLowerCase('uk-UA');
+    return {
+      ...existing,
+      id: existing?.id ?? `box-${number.toLocaleLowerCase('uk-UA').replace(/[^a-zа-яіїєґ0-9]+/giu, '-')}-${Date.now().toString(36)}`,
+      number,
+      name: value('name') || existing?.name || `Самозбірна коробка №${number}`,
+      dimensions,
+      basePrice,
+      active: !['false', '0', 'ні', 'no'].includes(activeValue),
+      updatedAt: new Date().toISOString(),
+    } satisfies ManagedProduct;
+  });
+  const importedNumbers = new Set(imported.map((product) => product.number.toLocaleLowerCase('uk-UA')));
+  return [...stored.filter((product) => !importedNumbers.has(product.number.toLocaleLowerCase('uk-UA'))), ...imported];
+}
+
+async function handleProductImport(input: HTMLInputElement): Promise<void> {
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    const next = importedProducts(await file.text());
+    if (!window.confirm(`Імпортувати ${next.length} товарів? Позиції з однаковими номерами буде оновлено.`)) return;
+    saveCatalog(next);
+    refreshProductSurfaces();
+    adminNotice = 'CSV імпортовано. Каталог оновлено.';
+    renderAdmin();
+  } catch (error) {
+    adminNotice = error instanceof Error ? error.message : 'Не вдалося прочитати CSV.';
+    renderAdmin();
+  } finally {
+    input.value = '';
+  }
 }
 
 function syncRoute(): void {
@@ -1959,6 +2197,7 @@ document.querySelector<HTMLFormElement>('#fit-form')?.addEventListener('submit',
     width: Number(data.get('width')),
     height: Number(data.get('height')),
   };
+  catalogExpanded = false;
   if (message) {
     message.textContent = 'Розміри застосовано. Показуємо коробки нижче.';
     message.className = 'form-message is-success';
@@ -1969,6 +2208,7 @@ document.querySelector<HTMLFormElement>('#fit-form')?.addEventListener('submit',
 
 document.querySelector<HTMLInputElement>('#catalog-search')?.addEventListener('input', (event) => {
   catalogSearch = (event.currentTarget as HTMLInputElement).value;
+  catalogExpanded = false;
   queueCatalogRender();
 });
 
@@ -2048,12 +2288,21 @@ document.addEventListener('click', (event) => {
 document.querySelector<HTMLButtonElement>('#reset-catalog')?.addEventListener('click', () => {
   fitDimensions = null;
   catalogSearch = '';
+  catalogExpanded = false;
   const search = document.querySelector<HTMLInputElement>('#catalog-search');
   if (search) search.value = '';
   const message = document.querySelector<HTMLParagraphElement>('#fit-message');
   if (message) message.textContent = '';
   queueCatalogRender();
 });
+
+document.querySelector<HTMLButtonElement>('#catalog-more-button')?.addEventListener('click', () => {
+  catalogExpanded = !catalogExpanded;
+  renderCatalog(false);
+  if (!catalogExpanded) document.querySelector('#catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+window.addEventListener('resize', () => renderCatalog(false));
 
 document.querySelector<HTMLSelectElement>('#calculator-product-select')?.addEventListener('change', (event) => {
   selectProduct((event.currentTarget as HTMLSelectElement).value);
@@ -2126,6 +2375,16 @@ document.addEventListener('click', (event) => {
   if (closeButton) {
     closeButton.closest<HTMLDialogElement>('dialog')?.close();
     activeProductDialogId = null;
+    return;
+  }
+
+  if (target.closest('[data-edit-profile]')) {
+    openProfileEditor();
+    return;
+  }
+
+  if (target.closest('[data-close-profile]')) {
+    document.querySelector<HTMLDialogElement>('#profile-dialog')?.close();
     return;
   }
 
@@ -2230,7 +2489,7 @@ document.addEventListener('click', (event) => {
   }
 
   if (target.closest('[data-export-products]')) {
-    downloadJson(`toffipacks-products-${new Date().toISOString().slice(0, 10)}.json`, catalogItems());
+    downloadText(`toffipacks-products-${new Date().toISOString().slice(0, 10)}.csv`, productsCsv(), 'text/csv;charset=utf-8');
     return;
   }
 
@@ -2271,6 +2530,11 @@ document.addEventListener('input', (event) => {
     filterAdminOrders();
     return;
   }
+  if (target instanceof HTMLInputElement && target.id === 'admin-order-date') {
+    adminOrderDate = target.value;
+    filterAdminOrders();
+    return;
+  }
   if (target instanceof HTMLInputElement && target.id === 'admin-client-search') {
     filterAdminClients(target.value);
     return;
@@ -2284,14 +2548,6 @@ document.addEventListener('input', (event) => {
     if (retail) retail.textContent = formatMoney(publicUnitPrice(model, 1));
     if (wholesale) wholesale.textContent = `опт: ${formatMoney(publicUnitPrice(model, WHOLESALE_FROM))}`;
   }
-});
-
-document.addEventListener('keydown', (event) => {
-  if (event.key !== 'Enter' && event.key !== ' ') return;
-  const target = event.target;
-  if (!(target instanceof HTMLElement) || !target.matches('.product-card')) return;
-  event.preventDefault();
-  if (target.dataset.openProduct) openProductDialog(target.dataset.openProduct);
 });
 
 document.addEventListener('submit', (event) => {
@@ -2309,11 +2565,30 @@ document.addEventListener('submit', (event) => {
   } else if (form.id === 'admin-product-form') {
     event.preventDefault();
     handleAdminProductSave(form);
+  } else if (form.id === 'profile-form') {
+    event.preventDefault();
+    handleProfileSave(form);
   }
 });
 
 document.addEventListener('change', (event) => {
   const target = event.target;
+
+  if (target instanceof HTMLInputElement && target.matches('[data-import-products]')) {
+    void handleProductImport(target);
+    return;
+  }
+
+  if (target instanceof HTMLTextAreaElement && target.dataset.orderNote) {
+    const storedOrders = orders();
+    const order = storedOrders.find((item) => item.id === target.dataset.orderNote);
+    if (order) {
+      order.managerNote = target.value.trim();
+      writeStorage(STORAGE.orders, storedOrders);
+    }
+    return;
+  }
+
   if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
 
   if (target instanceof HTMLInputElement && target.dataset.cartQuantity) {
@@ -2362,6 +2637,10 @@ document.querySelector<HTMLDialogElement>('#product-dialog')?.addEventListener('
 });
 
 document.querySelector<HTMLDialogElement>('#admin-product-dialog')?.addEventListener('click', (event) => {
+  if (event.target === event.currentTarget) (event.currentTarget as HTMLDialogElement).close();
+});
+
+document.querySelector<HTMLDialogElement>('#profile-dialog')?.addEventListener('click', (event) => {
   if (event.target === event.currentTarget) (event.currentTarget as HTMLDialogElement).close();
 });
 
