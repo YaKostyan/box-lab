@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  analyzeFit,
   DEFAULT_PARTNER_MARKUP,
   faqItems,
   fitsWithRotation,
@@ -52,4 +53,15 @@ test('підбір дозволяє поворот предмета', () => {
     ),
     false,
   );
+});
+
+test('запас у підборі рахується з кожного боку й не видає замалу коробку як придатну', () => {
+  const item = { length: 170, width: 110, height: 45 };
+  const box = { length: 178, width: 115, height: 48 };
+  const exact = analyzeFit(item, box, 0);
+  const withMargin = analyzeFit(item, box, 5);
+  assert.equal(exact.fits, true);
+  assert.deepEqual(exact.clearancesPerSide, [4, 2.5, 1.5]);
+  assert.equal(withMargin.fits, false);
+  assert.deepEqual(withMargin.deficitsPerSide, [1, 2.5, 3.5]);
 });

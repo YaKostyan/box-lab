@@ -1,8 +1,8 @@
 import './styles.css';
 import {
+  analyzeFit,
   DEFAULT_PARTNER_MARKUP,
   faqItems,
-  fitsWithRotation,
   formatMoney,
   MAX_QUANTITY,
   productVolume,
@@ -49,6 +49,12 @@ interface Order {
   accountId?: string;
   status: OrderStatus;
   managerNote?: string;
+  statusHistory?: OrderStatusEntry[];
+}
+
+interface OrderStatusEntry {
+  status: OrderStatus;
+  at: string;
 }
 
 interface OrderItem {
@@ -68,12 +74,26 @@ interface CartItem {
   quantity: number;
 }
 
+type FitMargin = 0 | 5 | 10;
+
+interface FitState {
+  dimensions: Dimensions;
+  margin: FitMargin;
+}
+
+interface SavedMeasurement extends FitState {
+  id: string;
+  createdAt: string;
+}
+
 const STORAGE = {
   accounts: 'toffipacks-accounts-v3',
   orders: 'toffipacks-orders-v3',
   session: 'toffipacks-session-v3',
   cart: 'toffipacks-cart-v1',
   products: 'toffipacks-products-v1',
+  fit: 'toffipacks-fit-v1',
+  measurements: 'toffipacks-measurements-v1',
 };
 
 const PRODUCT_NUMBER_PATTERN = /^[\p{L}\p{N}._-]+$/u;
@@ -133,12 +153,22 @@ function initializeStorage(): void {
 
 initializeStorage();
 
+const restoredFit = readStorage<FitState | null>(STORAGE.fit, null);
+const restoredDimensions = restoredFit?.dimensions;
+const hasRestoredDimensions =
+  restoredDimensions &&
+  [restoredDimensions.length, restoredDimensions.width, restoredDimensions.height].every(
+    (side) => Number.isFinite(side) && side > 0,
+  );
+const restoredMargin = restoredFit?.margin;
+
 let selectedProductId = 'box-101';
 let selectedQuantity = 500;
 let catalogSearch = '';
 let catalogSort: CatalogSort = 'size';
 let catalogExpanded = false;
-let fitDimensions: Dimensions | null = null;
+let fitDimensions: Dimensions | null = hasRestoredDimensions ? restoredDimensions : null;
+let fitMargin: FitMargin = restoredMargin === 5 || restoredMargin === 10 ? restoredMargin : 0;
 let catalogTimer: number | undefined;
 let activeProductDialogId: string | null = null;
 let adminProductSearch = '';
@@ -186,7 +216,15 @@ function saveCatalog(items: ManagedProduct[]): void {
 function orders(): Order[] {
   const stored = readStorage<Array<Order | LegacyOrder>>(STORAGE.orders, seedOrders);
   return stored.map((order) => {
-    if ('items' in order && Array.isArray(order.items)) return order;
+    if ('items' in order && Array.isArray(order.items)) {
+      return {
+        ...order,
+        statusHistory:
+          Array.isArray(order.statusHistory) && order.statusHistory.length
+            ? order.statusHistory
+            : [{ status: order.status, at: order.createdAt }],
+      };
+    }
     const legacy = order as LegacyOrder;
     return {
       id: legacy.id,
@@ -209,6 +247,7 @@ function orders(): Order[] {
       total: legacy.total,
       accountId: legacy.accountId,
       status: legacy.status,
+      statusHistory: [{ status: legacy.status, at: legacy.createdAt }],
     };
   });
 }
@@ -233,6 +272,97 @@ function selectedProduct(): Product {
 function clampQuantity(value: number): number {
   if (!Number.isFinite(value)) return 1;
   return Math.min(MAX_QUANTITY, Math.max(1, Math.round(value)));
+}
+
+function savedMeasurements(): SavedMeasurement[] {
+  return readStorage<SavedMeasurement[]>(STORAGE.measurements, []).filter(
+    (measurement) =>
+      measurement &&
+      typeof measurement.id === 'string' &&
+      [measurement.dimensions?.length, measurement.dimensions?.width, measurement.dimensions?.height].every(
+        (side) => Number.isFinite(side) && Number(side) > 0,
+      ) &&
+      [0, 5, 10].includes(measurement.margin),
+  );
+}
+
+function fitMarginLabel(margin: FitMargin): string {
+  if (margin === 0) return 'без додаткового запасу';
+  return `+${margin} мм з кожного боку`;
+}
+
+function savedMeasurementsMarkup(): string {
+  const measurements = savedMeasurements();
+  if (!measurements.length) return '';
+  return `
+    <div class="saved-measurements__head"><span>Збережені розміри</span><button type="button" data-clear-measurements>Очистити</button></div>
+    <div class="saved-measurements__list">
+      ${measurements
+        .map(
+          (measurement) => `
+            <button type="button" data-saved-measurement="${escapeHtml(measurement.id)}">
+              <strong>${dimensionText(measurement.dimensions)}</strong>
+              <span>${fitMarginLabel(measurement.margin)}</span>
+            </button>
+          `,
+        )
+        .join('')}
+    </div>
+  `;
+}
+
+function renderSavedMeasurements(): void {
+  const container = document.querySelector<HTMLElement>('#saved-measurements');
+  if (container) {
+    container.innerHTML = savedMeasurementsMarkup();
+    container.hidden = !container.innerHTML;
+  }
+}
+
+function rememberMeasurement(dimensions: Dimensions, margin: FitMargin): void {
+  const key = `${dimensions.length}-${dimensions.width}-${dimensions.height}-${margin}`;
+  const existing = savedMeasurements().filter(
+    (measurement) =>
+      `${measurement.dimensions.length}-${measurement.dimensions.width}-${measurement.dimensions.height}-${measurement.margin}` !== key,
+  );
+  const measurement: SavedMeasurement = {
+    id: `size-${key}`,
+    dimensions,
+    margin,
+    createdAt: new Date().toISOString(),
+  };
+  writeStorage(STORAGE.measurements, [measurement, ...existing].slice(0, 5));
+  writeStorage(STORAGE.fit, { dimensions, margin } satisfies FitState);
+  renderSavedMeasurements();
+}
+
+function applySavedMeasurement(measurement: SavedMeasurement, scrollToCatalog = true): void {
+  fitDimensions = { ...measurement.dimensions };
+  fitMargin = measurement.margin;
+  writeStorage(STORAGE.fit, { dimensions: fitDimensions, margin: fitMargin } satisfies FitState);
+  const form = document.querySelector<HTMLFormElement>('#fit-form');
+  if (form) {
+    (form.elements.namedItem('length') as HTMLInputElement | null)?.setAttribute('value', String(fitDimensions.length));
+    (form.elements.namedItem('width') as HTMLInputElement | null)?.setAttribute('value', String(fitDimensions.width));
+    (form.elements.namedItem('height') as HTMLInputElement | null)?.setAttribute('value', String(fitDimensions.height));
+    const setInputValue = (name: keyof Dimensions): void => {
+      const input = form.elements.namedItem(name);
+      if (input instanceof HTMLInputElement) input.value = String(fitDimensions?.[name] ?? '');
+    };
+    setInputValue('length');
+    setInputValue('width');
+    setInputValue('height');
+    const marginInput = form.querySelector<HTMLInputElement>(`input[name="fitMargin"][value="${fitMargin}"]`);
+    if (marginInput) marginInput.checked = true;
+  }
+  const message = document.querySelector<HTMLParagraphElement>('#fit-message');
+  if (message) {
+    message.textContent = `Розміри застосовано · ${fitMarginLabel(fitMargin)}.`;
+    message.className = 'form-message is-success';
+  }
+  catalogExpanded = false;
+  queueCatalogRender();
+  if (scrollToCatalog) window.setTimeout(() => document.querySelector('#catalog')?.scrollIntoView({ behavior: 'smooth' }), 180);
 }
 
 function normalizePhone(value: string): string {
@@ -421,21 +551,38 @@ function storefrontTemplate(): string {
             <div class="dimension-inputs">
               <label class="field">
                 <span>Довжина, мм</span>
-                <input class="input" name="length" type="number" min="1" max="2000" value="170" required />
+                <input class="input" name="length" type="number" min="1" max="2000" value="${fitDimensions?.length ?? 170}" required />
               </label>
               <span class="dimension-sign" aria-hidden="true">×</span>
               <label class="field">
                 <span>Ширина, мм</span>
-                <input class="input" name="width" type="number" min="1" max="2000" value="110" required />
+                <input class="input" name="width" type="number" min="1" max="2000" value="${fitDimensions?.width ?? 110}" required />
               </label>
               <span class="dimension-sign" aria-hidden="true">×</span>
               <label class="field">
                 <span>Висота, мм</span>
-                <input class="input" name="height" type="number" min="1" max="2000" value="45" required />
+                <input class="input" name="height" type="number" min="1" max="2000" value="${fitDimensions?.height ?? 45}" required />
               </label>
             </div>
+            <fieldset class="fit-margin">
+              <legend>Запас навколо предмета</legend>
+              <div class="fit-margin__options">
+                ${([0, 5, 10] as FitMargin[])
+                  .map(
+                    (margin) => `
+                      <label>
+                        <input type="radio" name="fitMargin" value="${margin}"${fitMargin === margin ? ' checked' : ''} />
+                        <span>${margin === 0 ? 'Точно' : `+${margin} мм / бік`}</span>
+                      </label>
+                    `,
+                  )
+                  .join('')}
+              </div>
+              <p>Запас додається з обох боків кожної сторони предмета.</p>
+            </fieldset>
             <button class="button button--primary" type="submit">Знайти коробку</button>
             <p class="form-message" id="fit-message" aria-live="polite"></p>
+            <div class="saved-measurements" id="saved-measurements"${savedMeasurements().length ? '' : ' hidden'}>${savedMeasurementsMarkup()}</div>
           </form>
           <div class="fit-panel__drawing">
             <div class="fit-object">
@@ -808,6 +955,31 @@ app.innerHTML = storefrontTemplate();
 const productGrid = document.querySelector<HTMLDivElement>('#product-grid');
 const catalogCount = document.querySelector<HTMLParagraphElement>('#catalog-count');
 
+function formatMillimeters(value: number): string {
+  return new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 1 }).format(Math.max(0, value));
+}
+
+function productFitMarkup(product: Product): string {
+  if (!fitDimensions) return '';
+  const analysis = analyzeFit(fitDimensions, product.dimensions, fitMargin);
+  if (analysis.fits) {
+    const minimumClearance = Math.min(...analysis.clearancesPerSide);
+    return `<div class="product-card__fit"><strong>Підходить</strong><span>мін. ${formatMillimeters(minimumClearance)} мм на бік</span></div>`;
+  }
+  const missingDimension = Math.max(...analysis.deficitsPerSide) * 2;
+  return `<div class="product-card__fit is-near"><strong>Найближчий розмір</strong><span>бракує до ${formatMillimeters(missingDimension)} мм</span></div>`;
+}
+
+function productDialogFitNotice(product: Product): string {
+  if (!fitDimensions) return '';
+  const analysis = analyzeFit(fitDimensions, product.dimensions, fitMargin);
+  if (analysis.fits) {
+    return `<div class="product-modal__fit is-fit"><strong>Коробка підходить</strong><span>${fitMarginLabel(fitMargin)} враховано у підборі.</span></div>`;
+  }
+  const missingDimension = Math.max(...analysis.deficitsPerSide) * 2;
+  return `<div class="product-modal__fit is-warning" role="status"><strong>Цей розмір замалий</strong><span>Бракує до ${formatMillimeters(missingDimension)} мм для обраного запасу. Додайте лише після ручної перевірки.</span></div>`;
+}
+
 function productCard(product: Product): string {
   const account = currentAccount();
   const retail = publicUnitPrice(product, 1);
@@ -824,6 +996,7 @@ function productCard(product: Product): string {
       </div>
       <div class="product-card__visual">${boxDiagram(product, true)}</div>
       <h3>${dimensionText(product.dimensions)}</h3>
+      ${productFitMarkup(product)}
       <div class="product-card__prices">
         ${
           partner !== null
@@ -861,6 +1034,7 @@ function productDialogContent(product: Product): string {
       <div class="product-modal__content">
         <p class="eyebrow"><span></span> Внутрішній розмір</p>
         <h2 id="product-dialog-title">${dimensionText(product.dimensions)}</h2>
+        ${productDialogFitNotice(product)}
 
         <div class="product-modal__rules">
           <div><span>1–999 шт.</span><strong>${formatMoney(publicUnitPrice(product, 1))} / шт.</strong></div>
@@ -937,7 +1111,7 @@ function filteredProducts(): Product[] {
   const result = products.filter((product) => {
     const searchable = `${product.number} ${product.name} ${dimensionText(product.dimensions)}`.toLocaleLowerCase('uk-UA');
     const matchesSearch = !normalizedSearch || searchable.includes(normalizedSearch);
-    const matchesDimensions = !fitDimensions || fitsWithRotation(fitDimensions, product.dimensions);
+    const matchesDimensions = !fitDimensions || analyzeFit(fitDimensions, product.dimensions, fitMargin).fits;
     return matchesSearch && matchesDimensions;
   });
 
@@ -946,6 +1120,24 @@ function filteredProducts(): Product[] {
     if (catalogSort === 'number') return first.number.localeCompare(second.number, 'uk-UA', { numeric: true });
     return productVolume(first) - productVolume(second);
   });
+}
+
+function nearestProducts(): Product[] {
+  if (!fitDimensions) return [];
+  const normalizedSearch = catalogSearch.trim().toLocaleLowerCase('uk-UA');
+  return visibleProducts()
+    .filter((product) => {
+      const searchable = `${product.number} ${product.name} ${dimensionText(product.dimensions)}`.toLocaleLowerCase('uk-UA');
+      return !normalizedSearch || searchable.includes(normalizedSearch);
+    })
+    .map((product) => {
+      const analysis = analyzeFit(fitDimensions as Dimensions, product.dimensions, fitMargin);
+      const deficit = analysis.deficitsPerSide.reduce((sum, value) => sum + value, 0);
+      return { product, deficit };
+    })
+    .sort((first, second) => first.deficit - second.deficit || productVolume(first.product) - productVolume(second.product))
+    .slice(0, 3)
+    .map(({ product }) => product);
 }
 
 function renderCatalog(loading = false): void {
@@ -963,15 +1155,20 @@ function renderCatalog(loading = false): void {
   }
 
   const result = filteredProducts();
-  const fitNote = fitDimensions ? ` · предмет ${dimensionText(fitDimensions)}` : '';
+  const fitNote = fitDimensions ? ` · предмет ${dimensionText(fitDimensions)} · ${fitMarginLabel(fitMargin)}` : '';
   catalogCount.textContent = `${result.length} із ${visibleProducts().length} розмірів${fitNote}`;
   if (!result.length) {
+    const nearest = nearestProducts();
     productGrid.innerHTML = `
-      <div class="empty-state">
+      <div class="empty-state${nearest.length ? ' empty-state--nearest' : ''}">
         <div class="empty-state__box" aria-hidden="true"></div>
         <h3>Готового розміру немає.</h3>
-        <p>Змініть габарити предмета або залиште заявку з потрібним розміром.</p>
-        <a class="button button--primary" href="#request">Описати свій розмір</a>
+        <p>${fitMargin ? `Із запасом ${fitMarginLabel(fitMargin)} точного варіанта немає. Найближчі коробки нижче замалі — це позначено окремо.` : 'Змініть габарити предмета або залиште заявку з потрібним розміром.'}</p>
+        <div class="empty-state__actions">
+          ${fitMargin ? '<button class="button button--ghost" type="button" data-use-tight-fit>Показати без запасу</button>' : ''}
+          <a class="button button--primary" href="#request">Описати свій розмір</a>
+        </div>
+        ${nearest.length ? `<div class="nearest-results"><div class="nearest-results__head"><strong>Найближчі готові розміри</strong><span>Вони не відповідають обраному запасу</span></div><div class="nearest-results__grid">${nearest.map(productCard).join('')}</div></div>` : ''}
       </div>
     `;
     if (more) more.hidden = true;
@@ -1146,13 +1343,20 @@ function renderCart(): void {
           </div>
           <label class="cart-item__quantity">
             <span>Кількість</span>
-            <input class="input" type="number" min="1" max="${MAX_QUANTITY}" value="${item.quantity}" data-cart-quantity="${escapeHtml(product.id)}" />
+            <div class="cart-item__quantity-control">
+              <button type="button" data-cart-step="-100" data-cart-product="${escapeHtml(product.id)}" aria-label="Зменшити кількість коробки №${escapeHtml(product.number)} на 100">−</button>
+              <input class="input" type="number" min="1" max="${MAX_QUANTITY}" value="${item.quantity}" data-cart-quantity="${escapeHtml(product.id)}" />
+              <button type="button" data-cart-step="100" data-cart-product="${escapeHtml(product.id)}" aria-label="Збільшити кількість коробки №${escapeHtml(product.number)} на 100">+</button>
+            </div>
           </label>
           <div class="cart-item__total">
             <span>Сума</span>
             <strong>${formatMoney(lineTotal)}</strong>
           </div>
-          <button class="cart-item__remove" type="button" data-remove-cart="${escapeHtml(product.id)}" aria-label="Прибрати коробку №${escapeHtml(product.number)} з кошика">×</button>
+          <div class="cart-item__actions">
+            <button type="button" data-edit-cart="${escapeHtml(product.id)}">Змінити</button>
+            <button class="cart-item__remove" type="button" data-remove-cart="${escapeHtml(product.id)}" aria-label="Прибрати коробку №${escapeHtml(product.number)} з кошика">×</button>
+          </div>
         </article>
       `;
     })
@@ -1164,8 +1368,26 @@ function renderCart(): void {
       <span>${positionLabel(storedCart.length)}</span>
       <div><small>Загальна вартість</small><strong>${formatMoney(cartTotal)}</strong></div>
     </div>
-    <a class="cart-continue" href="#catalog">+ Додати ще один розмір</a>
+    <div class="cart-summary__actions">
+      <a class="cart-continue" href="#catalog">+ Додати ще один розмір</a>
+      <button type="button" data-clear-cart>Очистити кошик</button>
+    </div>
   `;
+}
+
+function repeatOrder(orderId: string): void {
+  const order = orders().find((item) => item.id === orderId);
+  if (!order) return;
+  const availableIds = new Set(visibleProducts().map((product) => product.id));
+  const repeated = order.items
+    .filter((item) => availableIds.has(item.productId))
+    .map((item) => ({ productId: item.productId, quantity: clampQuantity(item.quantity) }));
+  if (!repeated.length) return;
+  const merged = cartItems().filter((item) => !repeated.some((candidate) => candidate.productId === item.productId));
+  writeStorage(STORAGE.cart, [...merged, ...repeated]);
+  renderCart();
+  window.location.hash = 'request';
+  window.setTimeout(() => document.querySelector('#request')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
 }
 
 function renderAccountButton(): void {
@@ -1252,11 +1474,20 @@ function accountPageContent(): string {
                         return `
                           <article class="account-order">
                             <div class="account-order__main">
+                              <span>${escapeHtml(order.id)}</span>
                               <strong>${positionLabel(order.items.length)}</strong>
                               <small>${totalQuantity.toLocaleString('uk-UA')} шт. загалом</small>
                             </div>
                             <div class="account-order__price"><strong>${formatMoney(order.total)}</strong><small>загальна сума</small></div>
                             <div class="account-order__meta"><span>${escapeHtml(order.status)}</span><time datetime="${order.createdAt}">${new Date(order.createdAt).toLocaleDateString('uk-UA')}</time></div>
+                            <div class="account-order__items">
+                              ${order.items
+                                .map(
+                                  (item) => `<span><b>№${escapeHtml(item.productNumber)}</b> ${dimensionText(item.dimensions)} · ${item.quantity.toLocaleString('uk-UA')} шт.</span>`,
+                                )
+                                .join('')}
+                            </div>
+                            <button class="account-order__repeat" type="button" data-repeat-order="${escapeHtml(order.id)}">Повторити замовлення</button>
                           </article>
                         `;
                       })
@@ -1284,6 +1515,15 @@ function accountPageContent(): string {
               </dl>
               ${account.role === 'admin' ? '<a class="button button--ghost button--wide" href="#admin">Відкрити адмінку</a>' : ''}
             </article>
+            ${
+              savedMeasurements().length
+                ? `<article class="account-measurements"><div><p class="technical-label">Збережені розміри</p><span>${savedMeasurements().length} останніх</span></div><div class="account-measurements__list">${savedMeasurements()
+                    .map(
+                      (measurement) => `<button type="button" data-saved-measurement="${escapeHtml(measurement.id)}"><strong>${dimensionText(measurement.dimensions)}</strong><span>${fitMarginLabel(measurement.margin)}</span></button>`,
+                    )
+                    .join('')}</div></article>`
+                : ''
+            }
           </aside>
         </div>
       </div>
@@ -1491,6 +1731,8 @@ function submitRequest(form: HTMLFormElement): void {
 
   const formData = new FormData(form);
   const account = currentAccount();
+  const requestPhone = normalizePhone(String(formData.get('phone') ?? ''));
+  const linkedAccount = account ?? accounts().find((candidate) => normalizePhone(candidate.phone) === requestPhone);
   const orderItems: OrderItem[] = storedCart.flatMap((cartItem) => {
     const product = visibleProducts().find((candidate) => candidate.id === cartItem.productId);
     if (!product) return [];
@@ -1508,17 +1750,19 @@ function submitRequest(form: HTMLFormElement): void {
     ];
   });
   const orderTotal = orderItems.reduce((sum, item) => sum + item.total, 0);
+  const createdAt = new Date().toISOString();
   const order: Order = {
     id: `TP-${Date.now().toString(36).toUpperCase()}`,
-    createdAt: new Date().toISOString(),
+    createdAt,
     customerName: String(formData.get('name') ?? '').trim(),
-    phone: normalizePhone(String(formData.get('phone') ?? '')),
+    phone: requestPhone,
     company: String(formData.get('company') ?? '').trim(),
     comment: String(formData.get('comment') ?? '').trim(),
     items: orderItems,
     total: orderTotal,
-    accountId: account?.id,
+    accountId: linkedAccount?.id,
     status: 'Нова',
+    statusHistory: [{ status: 'Нова', at: createdAt }],
   };
   const storedOrders = orders();
   storedOrders.push(order);
@@ -1529,7 +1773,7 @@ function submitRequest(form: HTMLFormElement): void {
 
   if (status) {
     status.className = 'form-status is-success';
-    status.innerHTML = `<strong>Заявку створено.</strong><span>${positionLabel(order.items.length)} на суму ${formatMoney(order.total)}.</span>`;
+    status.innerHTML = `<strong>Заявку ${escapeHtml(order.id)} створено.</strong><span>${positionLabel(order.items.length)} на суму ${formatMoney(order.total)}. Номер можна повідомити менеджеру.</span>`;
   }
   form.querySelector<HTMLButtonElement>('button[type="submit"]')?.focus();
 }
@@ -1630,6 +1874,19 @@ function adminOrderCard(order: Order): string {
           .join('')}
       </div>
       ${order.company || order.comment ? `<p class="order-card__comment">${escapeHtml(order.company)}${order.company && order.comment ? ' · ' : ''}${escapeHtml(order.comment)}</p>` : ''}
+      <div class="order-status-history" aria-label="Історія статусів">
+        <span>Історія</span>
+        <div>
+          ${(order.statusHistory ?? [{ status: order.status, at: order.createdAt }])
+            .slice()
+            .reverse()
+            .slice(0, 5)
+            .map(
+              (entry) => `<p><strong>${escapeHtml(entry.status)}</strong><time datetime="${escapeHtml(entry.at)}">${new Date(entry.at).toLocaleString('uk-UA')}</time></p>`,
+            )
+            .join('')}
+        </div>
+      </div>
       <label class="order-card__manager-note">
         <span>Нотатка менеджера</span>
         <textarea data-order-note="${escapeHtml(order.id)}" rows="2" placeholder="Домовленості після дзвінка, дата або деталі">${escapeHtml(order.managerNote ?? '')}</textarea>
@@ -1660,6 +1917,13 @@ function adminOverviewPage(storedOrders: Order[], clients: Account[]): string {
       <a href="#admin-products"><span>02</span><h2>Каталог</h2><p>Додавайте коробки, редагуйте розміри, ціни та видимість.</p><b>Керувати →</b></a>
       <a href="#admin-clients"><span>03</span><h2>Клієнти</h2><p>Активуйте постійного клієнта та його персональні умови.</p><b>Переглянути →</b></a>
     </section>
+    <section class="admin-backup-panel">
+      <div><span class="technical-label">Локальна копія</span><h2>Резерв даних кабінету</h2><p>Збережіть товари, заявки, клієнтів і локальні налаштування одним JSON-файлом.</p></div>
+      <div class="admin-backup-panel__actions">
+        <button class="button button--ghost button--small" type="button" data-export-backup>Завантажити копію</button>
+        <label class="button button--ghost button--small admin-file-button">Відновити з копії<input type="file" accept=".json,application/json" data-import-backup /></label>
+      </div>
+    </section>
     <section class="admin-section">
       <div class="admin-section__head"><h2>Останні заявки</h2><a class="text-link" href="#admin-orders">Усі замовлення →</a></div>
       <div class="orders-list">
@@ -1682,7 +1946,10 @@ function adminOrdersPage(storedOrders: Order[]): string {
       <div class="admin-filter-chips" aria-label="Фільтр за статусом">
         ${statuses.map((status) => `<button class="${adminOrderStatus === status ? 'is-active' : ''}" type="button" data-admin-order-filter="${status}">${status}</button>`).join('')}
       </div>
-      <button class="button button--ghost button--small" type="button" data-export-orders>Експорт JSON</button>
+      <div class="admin-toolbar__actions">
+        <button class="button button--ghost button--small" type="button" data-export-orders-csv>CSV</button>
+        <button class="button button--ghost button--small" type="button" data-export-orders>JSON</button>
+      </div>
     </div>
     <div class="admin-results-meta"><strong id="admin-order-count">${storedOrders.length}</strong><span>заявок показано</span></div>
     <div class="orders-list" id="admin-orders-list">
@@ -2015,6 +2282,141 @@ function productsCsv(): string {
   return `\uFEFF${[header.join(';'), ...rows].join('\r\n')}`;
 }
 
+function ordersCsv(): string {
+  const header = [
+    'orderId',
+    'createdAt',
+    'status',
+    'customerName',
+    'phone',
+    'company',
+    'productNumber',
+    'length',
+    'width',
+    'height',
+    'quantity',
+    'unitPrice',
+    'lineTotal',
+    'orderTotal',
+    'comment',
+    'managerNote',
+  ];
+  const rows = orders().flatMap((order) =>
+    order.items.map((item) =>
+      [
+        order.id,
+        order.createdAt,
+        order.status,
+        order.customerName,
+        order.phone,
+        order.company,
+        item.productNumber,
+        item.dimensions.length,
+        item.dimensions.width,
+        item.dimensions.height,
+        item.quantity,
+        item.unitPrice,
+        item.total,
+        order.total,
+        order.comment,
+        order.managerNote ?? '',
+      ]
+        .map(csvCell)
+        .join(';'),
+    ),
+  );
+  return `\uFEFF${[header.join(';'), ...rows].join('\r\n')}`;
+}
+
+interface BackupPayload {
+  version: 1;
+  createdAt: string;
+  accounts: Account[];
+  orders: Order[];
+  products: ManagedProduct[];
+  cart: CartItem[];
+  measurements: SavedMeasurement[];
+  fit: FitState | null;
+}
+
+function backupPayload(): BackupPayload {
+  return {
+    version: 1,
+    createdAt: new Date().toISOString(),
+    accounts: accounts(),
+    orders: orders(),
+    products: catalogItems(),
+    cart: cartItems(),
+    measurements: savedMeasurements(),
+    fit: fitDimensions ? { dimensions: fitDimensions, margin: fitMargin } : null,
+  };
+}
+
+function isBackupPayload(value: unknown): value is BackupPayload {
+  if (!value || typeof value !== 'object') return false;
+  const payload = value as Partial<BackupPayload>;
+  if (payload.version !== 1) return false;
+  if (!Array.isArray(payload.accounts) || !Array.isArray(payload.orders) || !Array.isArray(payload.products)) return false;
+  const validAccounts = payload.accounts.every(
+    (account) =>
+      account &&
+      typeof account.id === 'string' &&
+      typeof account.phone === 'string' &&
+      (account.role === 'admin' || account.role === 'client'),
+  );
+  const validProducts = payload.products.every(
+    (product) =>
+      product &&
+      typeof product.id === 'string' &&
+      typeof product.number === 'string' &&
+      Number.isFinite(product.basePrice) &&
+      [product.dimensions?.length, product.dimensions?.width, product.dimensions?.height].every(
+        (side) => Number.isFinite(side) && Number(side) > 0,
+      ),
+  );
+  const validOrders = payload.orders.every(
+    (order) =>
+      order &&
+      typeof order.id === 'string' &&
+      typeof order.phone === 'string' &&
+      Array.isArray(order.items) &&
+      Number.isFinite(order.total),
+  );
+  return validAccounts && validProducts && validOrders && payload.accounts.some((account) => account.role === 'admin');
+}
+
+async function handleBackupImport(input: HTMLInputElement): Promise<void> {
+  const file = input.files?.[0];
+  if (!file) return;
+  try {
+    const parsed: unknown = JSON.parse(await file.text());
+    if (!isBackupPayload(parsed)) throw new Error('Файл не є коректною резервною копією ToffiPacks.');
+    if (!window.confirm('Відновити локальні дані з цієї копії? Поточні заявки, клієнти й товари буде замінено.')) return;
+    writeStorage(STORAGE.accounts, parsed.accounts);
+    writeStorage(STORAGE.orders, parsed.orders);
+    writeStorage(STORAGE.products, parsed.products);
+    writeStorage(STORAGE.cart, Array.isArray(parsed.cart) ? parsed.cart : []);
+    writeStorage(STORAGE.measurements, Array.isArray(parsed.measurements) ? parsed.measurements : []);
+    if (parsed.fit) writeStorage(STORAGE.fit, parsed.fit);
+    else localStorage.removeItem(STORAGE.fit);
+    fitDimensions = parsed.fit?.dimensions ?? null;
+    fitMargin = parsed.fit?.margin === 5 || parsed.fit?.margin === 10 ? parsed.fit.margin : 0;
+    if (!accounts().some((account) => account.id === localStorage.getItem(STORAGE.session))) {
+      localStorage.removeItem(STORAGE.session);
+    }
+    refreshProductSurfaces();
+    renderAccountButton();
+    renderAccountPage();
+    adminNotice = `Резервну копію від ${new Date(parsed.createdAt).toLocaleString('uk-UA')} відновлено.`;
+    renderAdmin();
+  } catch (error) {
+    adminNotice = error instanceof Error ? error.message : 'Не вдалося відновити резервну копію.';
+    renderAdmin();
+  } finally {
+    input.value = '';
+  }
+}
+
 function parseCsv(value: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -2197,9 +2599,12 @@ document.querySelector<HTMLFormElement>('#fit-form')?.addEventListener('submit',
     width: Number(data.get('width')),
     height: Number(data.get('height')),
   };
+  const requestedMargin = Number(data.get('fitMargin'));
+  fitMargin = requestedMargin === 5 || requestedMargin === 10 ? requestedMargin : 0;
+  rememberMeasurement(fitDimensions, fitMargin);
   catalogExpanded = false;
   if (message) {
-    message.textContent = 'Розміри застосовано. Показуємо коробки нижче.';
+    message.textContent = `Розміри застосовано · ${fitMarginLabel(fitMargin)}.`;
     message.className = 'form-message is-success';
   }
   queueCatalogRender();
@@ -2287,12 +2692,14 @@ document.addEventListener('click', (event) => {
 
 document.querySelector<HTMLButtonElement>('#reset-catalog')?.addEventListener('click', () => {
   fitDimensions = null;
+  fitMargin = 0;
   catalogSearch = '';
   catalogExpanded = false;
   const search = document.querySelector<HTMLInputElement>('#catalog-search');
   if (search) search.value = '';
   const message = document.querySelector<HTMLParagraphElement>('#fit-message');
   if (message) message.textContent = '';
+  localStorage.removeItem(STORAGE.fit);
   queueCatalogRender();
 });
 
@@ -2327,6 +2734,30 @@ document.querySelector<HTMLFormElement>('#request-form')?.addEventListener('subm
 
 document.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
+
+  const savedMeasurementButton = target.closest<HTMLButtonElement>('[data-saved-measurement]');
+  if (savedMeasurementButton?.dataset.savedMeasurement) {
+    const measurement = savedMeasurements().find((item) => item.id === savedMeasurementButton.dataset.savedMeasurement);
+    if (measurement) applySavedMeasurement(measurement);
+    return;
+  }
+
+  if (target.closest('[data-clear-measurements]')) {
+    localStorage.removeItem(STORAGE.measurements);
+    renderSavedMeasurements();
+    renderAccountPage();
+    return;
+  }
+
+  if (target.closest('[data-use-tight-fit]') && fitDimensions) {
+    fitMargin = 0;
+    rememberMeasurement(fitDimensions, fitMargin);
+    const marginInput = document.querySelector<HTMLInputElement>('#fit-form input[name="fitMargin"][value="0"]');
+    if (marginInput) marginInput.checked = true;
+    queueCatalogRender();
+    return;
+  }
+
   const productTrigger = target.closest<HTMLElement>('[data-open-product]');
   if (productTrigger?.dataset.openProduct) {
     openProductDialog(productTrigger.dataset.openProduct);
@@ -2354,6 +2785,37 @@ document.addEventListener('click', (event) => {
 
   if (target.closest('[data-add-selected-to-cart]')) {
     addToCart(selectedProductId, selectedQuantity);
+    return;
+  }
+
+  const cartStep = target.closest<HTMLButtonElement>('[data-cart-step]');
+  if (cartStep?.dataset.cartProduct && cartStep.dataset.cartStep) {
+    const item = cartItems().find((candidate) => candidate.productId === cartStep.dataset.cartProduct);
+    if (item) updateCartQuantity(item.productId, item.quantity + Number(cartStep.dataset.cartStep));
+    return;
+  }
+
+  const editCartButton = target.closest<HTMLButtonElement>('[data-edit-cart]');
+  if (editCartButton?.dataset.editCart) {
+    const item = cartItems().find((candidate) => candidate.productId === editCartButton.dataset.editCart);
+    if (item) {
+      setQuantity(item.quantity);
+      openProductDialog(item.productId);
+    }
+    return;
+  }
+
+  if (target.closest('[data-clear-cart]')) {
+    if (window.confirm('Очистити всі позиції кошика?')) {
+      writeStorage(STORAGE.cart, []);
+      renderCart();
+    }
+    return;
+  }
+
+  const repeatOrderButton = target.closest<HTMLButtonElement>('[data-repeat-order]');
+  if (repeatOrderButton?.dataset.repeatOrder) {
+    repeatOrder(repeatOrderButton.dataset.repeatOrder);
     return;
   }
 
@@ -2488,6 +2950,16 @@ document.addEventListener('click', (event) => {
     return;
   }
 
+  if (target.closest('[data-export-orders-csv]')) {
+    downloadText(`toffipacks-orders-${new Date().toISOString().slice(0, 10)}.csv`, ordersCsv(), 'text/csv;charset=utf-8');
+    return;
+  }
+
+  if (target.closest('[data-export-backup]')) {
+    downloadJson(`toffipacks-backup-${new Date().toISOString().slice(0, 10)}.json`, backupPayload());
+    return;
+  }
+
   if (target.closest('[data-export-products]')) {
     downloadText(`toffipacks-products-${new Date().toISOString().slice(0, 10)}.csv`, productsCsv(), 'text/csv;charset=utf-8');
     return;
@@ -2579,6 +3051,11 @@ document.addEventListener('change', (event) => {
     return;
   }
 
+  if (target instanceof HTMLInputElement && target.matches('[data-import-backup]')) {
+    void handleBackupImport(target);
+    return;
+  }
+
   if (target instanceof HTMLTextAreaElement && target.dataset.orderNote) {
     const storedOrders = orders();
     const order = storedOrders.find((item) => item.id === target.dataset.orderNote);
@@ -2600,7 +3077,12 @@ document.addEventListener('change', (event) => {
     const storedOrders = orders();
     const order = storedOrders.find((item) => item.id === target.dataset.orderStatus);
     if (order) {
-      order.status = target.value as OrderStatus;
+      const nextStatus = target.value as OrderStatus;
+      if (order.status !== nextStatus) {
+        const previousStatus = order.status;
+        order.status = nextStatus;
+        order.statusHistory = [...(order.statusHistory ?? [{ status: previousStatus, at: order.createdAt }]), { status: nextStatus, at: new Date().toISOString() }];
+      }
       writeStorage(STORAGE.orders, storedOrders);
       renderAdmin();
     }
@@ -2652,3 +3134,9 @@ renderCalculator();
 renderAccountButton();
 syncRoute();
 initializeRevealAnimations();
+
+if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('./sw.js').catch(() => undefined);
+  });
+}

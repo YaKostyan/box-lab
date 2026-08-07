@@ -18,6 +18,12 @@ export interface PartnerAccount {
   fixedMarkup: number;
 }
 
+export interface FitAnalysis {
+  fits: boolean;
+  clearancesPerSide: [number, number, number];
+  deficitsPerSide: [number, number, number];
+}
+
 export const MAX_QUANTITY = 50_000;
 export const WHOLESALE_FROM = 1_000;
 export const RETAIL_MARKUP = 2;
@@ -184,7 +190,17 @@ export function productVolume(product: Product): number {
 }
 
 export function fitsWithRotation(item: Dimensions, box: Dimensions): boolean {
+  return analyzeFit(item, box).fits;
+}
+
+export function analyzeFit(item: Dimensions, box: Dimensions, marginPerSide = 0): FitAnalysis {
   const itemSides = [item.length, item.width, item.height].sort((a, b) => b - a);
   const boxSides = [box.length, box.width, box.height].sort((a, b) => b - a);
-  return itemSides.every((side, index) => side <= boxSides[index]);
+  const clearancesPerSide = itemSides.map((side, index) => (boxSides[index] - side) / 2) as [number, number, number];
+  const deficitsPerSide = clearancesPerSide.map((clearance) => Math.max(0, marginPerSide - clearance)) as [number, number, number];
+  return {
+    fits: deficitsPerSide.every((deficit) => deficit === 0),
+    clearancesPerSide,
+    deficitsPerSide,
+  };
 }
