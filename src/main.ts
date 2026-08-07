@@ -6,7 +6,7 @@ import {
   formatMoney,
   MAX_QUANTITY,
   productVolume,
-  products,
+  products as seedProducts,
   publicUnitPrice,
   unitPrice,
   WHOLESALE_FROM,
@@ -17,6 +17,13 @@ import {
 type AccountRole = 'client' | 'admin';
 type OrderStatus = 'Нова' | 'У роботі' | 'Уточнення' | 'Підтверджена' | 'Закрита';
 type CatalogSort = 'size' | 'price' | 'number';
+type AdminView = 'overview' | 'orders' | 'clients' | 'products';
+type ProductVisibility = 'all' | 'active' | 'hidden';
+
+interface ManagedProduct extends Product {
+  active: boolean;
+  updatedAt: string;
+}
 
 interface Account {
   id: string;
@@ -65,6 +72,7 @@ const STORAGE = {
   orders: 'toffipacks-orders-v3',
   session: 'toffipacks-session-v3',
   cart: 'toffipacks-cart-v1',
+  products: 'toffipacks-products-v1',
 };
 
 const now = new Date().toISOString();
@@ -112,6 +120,12 @@ function initializeStorage(): void {
   if (!localStorage.getItem(STORAGE.accounts)) writeStorage(STORAGE.accounts, seedAccounts);
   if (!localStorage.getItem(STORAGE.orders)) writeStorage(STORAGE.orders, seedOrders);
   if (!localStorage.getItem(STORAGE.cart)) writeStorage(STORAGE.cart, []);
+  if (!localStorage.getItem(STORAGE.products)) {
+    writeStorage(
+      STORAGE.products,
+      seedProducts.map((product) => ({ ...product, active: true, updatedAt: now })),
+    );
+  }
 }
 
 initializeStorage();
@@ -123,12 +137,45 @@ let catalogSort: CatalogSort = 'size';
 let fitDimensions: Dimensions | null = null;
 let catalogTimer: number | undefined;
 let activeProductDialogId: string | null = null;
+let adminProductSearch = '';
+let adminProductVisibility: ProductVisibility = 'all';
+let adminOrderSearch = '';
+let adminOrderStatus: OrderStatus | 'Усі' = 'Усі';
+let adminNotice = '';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('Root element #app was not found.');
 
 function accounts(): Account[] {
   return readStorage<Account[]>(STORAGE.accounts, seedAccounts);
+}
+
+function catalogItems(): ManagedProduct[] {
+  const fallback = seedProducts.map((product) => ({ ...product, active: true, updatedAt: now }));
+  return readStorage<ManagedProduct[]>(STORAGE.products, fallback)
+    .filter(
+      (product) =>
+        product &&
+        typeof product.id === 'string' &&
+        typeof product.number === 'string' &&
+        Number.isFinite(product.basePrice) &&
+        Number.isFinite(product.dimensions?.length) &&
+        Number.isFinite(product.dimensions?.width) &&
+        Number.isFinite(product.dimensions?.height),
+    )
+    .map((product) => ({
+      ...product,
+      active: product.active !== false,
+      updatedAt: product.updatedAt || now,
+    }));
+}
+
+function visibleProducts(): ManagedProduct[] {
+  return catalogItems().filter((product) => product.active);
+}
+
+function saveCatalog(items: ManagedProduct[]): void {
+  writeStorage(STORAGE.products, items);
 }
 
 function orders(): Order[] {
@@ -162,6 +209,7 @@ function orders(): Order[] {
 }
 
 function cartItems(): CartItem[] {
+  const products = visibleProducts();
   return readStorage<CartItem[]>(STORAGE.cart, []).filter(
     (item) => products.some((product) => product.id === item.productId) && item.quantity > 0,
   );
@@ -173,6 +221,7 @@ function currentAccount(): Account | null {
 }
 
 function selectedProduct(): Product {
+  const products = visibleProducts();
   return products.find((product) => product.id === selectedProductId) ?? products[0];
 }
 
@@ -265,7 +314,7 @@ function boxDiagram(product: Product, compact = false): string {
 }
 
 function productOptions(): string {
-  return products
+  return visibleProducts()
     .map(
       (product) =>
         `<option value="${product.id}"${product.id === selectedProductId ? ' selected' : ''}>№${product.number} · ${dimensionText(product.dimensions)}</option>`,
@@ -313,7 +362,7 @@ function storefrontTemplate(): string {
             <a class="text-link" href="#catalog">Дивитися всі розміри <span aria-hidden="true">→</span></a>
           </div>
           <dl class="hero__facts">
-            <div><dt>12</dt><dd>готових розмірів</dd></div>
+            <div><dt id="hero-product-count">${visibleProducts().length}</dt><dd>готових розмірів</dd></div>
             <div><dt>1–50 000</dt><dd>діапазон калькулятора</dd></div>
             <div><dt>Одразу</dt><dd>кінцева вартість</dd></div>
           </dl>
@@ -398,7 +447,7 @@ function storefrontTemplate(): string {
       <section class="section catalog-section" id="catalog">
         <div class="section-heading reveal">
           <div>
-            <p class="eyebrow"><span></span> 12 готових розмірів</p>
+            <p class="eyebrow" id="catalog-ready-label"><span></span> ${visibleProducts().length} готових розмірів</p>
             <h2>Оберіть розмір,<br />не призначення.</h2>
           </div>
           <p>Порівняйте внутрішні габарити та одразу порахуйте потрібну кількість.</p>
@@ -533,13 +582,9 @@ function storefrontTemplate(): string {
               сертифікатами. Повторне використання сировини зменшує потребу в новому картоні
               та дає матеріалу ще один цикл життя.
             </p>
-            <div class="eco-card__limit">
-              <strong>до 2 кг</strong>
-              <p>рекомендоване навантаження для цього картону</p>
-            </div>
             <p class="eco-card__note">
-              За умови щільного внутрішнього пакування коробка надійно утримує вміст під час
-              зберігання та перевезення.
+              Повторне використання матеріалу допомагає зменшувати кількість відходів без
+              зайвих слів і декоративних обіцянок.
             </p>
           </article>
         </div>
@@ -614,7 +659,7 @@ function storefrontTemplate(): string {
           <div class="delivery-list reveal">
             <article>
               <span>01</span>
-              <div><h3>Доставка</h3><p>Відправлення по Україні: місто, відділення або адресний формат узгоджуємо під час підтвердження.</p></div>
+              <div><h3>Доставка</h3><p>Доставляємо по Києву та Київській області. Формат, адресу й вартість уточнюйте з менеджером.</p></div>
             </article>
             <article>
               <span>02</span>
@@ -721,6 +766,10 @@ function storefrontTemplate(): string {
         <a class="button button--ghost button--small" href="#top">Повернутися на сайт</a>
       </header>
       <div id="admin-content"></div>
+      <dialog class="admin-product-dialog" id="admin-product-dialog" aria-labelledby="admin-product-dialog-title">
+        <button class="dialog-close" type="button" data-close-admin-product aria-label="Закрити">×</button>
+        <div id="admin-product-editor"></div>
+      </dialog>
     </section>
 
     <section class="account-page" id="account-page" hidden aria-labelledby="account-page-title">
@@ -836,7 +885,7 @@ function productDialogContent(product: Product): string {
 function updateProductDialog(): void {
   const dialog = document.querySelector<HTMLDialogElement>('#product-dialog');
   if (!dialog?.open || !activeProductDialogId) return;
-  const product = products.find((item) => item.id === activeProductDialogId);
+  const product = visibleProducts().find((item) => item.id === activeProductDialogId);
   if (!product) return;
   const account = currentAccount();
   const calculatedUnit = unitPrice(product, selectedQuantity, account);
@@ -856,7 +905,7 @@ function updateProductDialog(): void {
 }
 
 function openProductDialog(productId: string): void {
-  const product = products.find((item) => item.id === productId);
+  const product = visibleProducts().find((item) => item.id === productId);
   const dialog = document.querySelector<HTMLDialogElement>('#product-dialog');
   const content = document.querySelector<HTMLDivElement>('#product-dialog-content');
   if (!product || !dialog || !content) return;
@@ -869,6 +918,7 @@ function openProductDialog(productId: string): void {
 }
 
 function filteredProducts(): Product[] {
+  const products = visibleProducts();
   const normalizedSearch = catalogSearch.trim().toLocaleLowerCase('uk-UA');
   const result = products.filter((product) => {
     const searchable = `${product.number} ${product.name} ${dimensionText(product.dimensions)}`.toLocaleLowerCase('uk-UA');
@@ -879,7 +929,7 @@ function filteredProducts(): Product[] {
 
   return result.sort((first, second) => {
     if (catalogSort === 'price') return first.basePrice - second.basePrice;
-    if (catalogSort === 'number') return Number(first.number) - Number(second.number);
+    if (catalogSort === 'number') return first.number.localeCompare(second.number, 'uk-UA', { numeric: true });
     return productVolume(first) - productVolume(second);
   });
 }
@@ -897,7 +947,7 @@ function renderCatalog(loading = false): void {
 
   const result = filteredProducts();
   const fitNote = fitDimensions ? ` · предмет ${dimensionText(fitDimensions)}` : '';
-  catalogCount.textContent = `${result.length} із ${products.length} розмірів${fitNote}`;
+  catalogCount.textContent = `${result.length} із ${visibleProducts().length} розмірів${fitNote}`;
   if (!result.length) {
     productGrid.innerHTML = `
       <div class="empty-state">
@@ -984,7 +1034,7 @@ function renderCalculator(): void {
 }
 
 function selectProduct(productId: string, scrollToCalculator = false): void {
-  if (!products.some((product) => product.id === productId)) return;
+  if (!visibleProducts().some((product) => product.id === productId)) return;
   selectedProductId = productId;
   renderCatalog(false);
   renderCalculator();
@@ -999,7 +1049,7 @@ function setQuantity(value: number): void {
 }
 
 function addToCart(productId: string, quantity: number): void {
-  if (!products.some((product) => product.id === productId)) return;
+  if (!visibleProducts().some((product) => product.id === productId)) return;
   const storedCart = cartItems();
   const existing = storedCart.find((item) => item.productId === productId);
   if (existing) existing.quantity = clampQuantity(quantity);
@@ -1056,7 +1106,7 @@ function renderCart(): void {
   let cartTotal = 0;
   const itemsMarkup = storedCart
     .map((item) => {
-      const product = products.find((candidate) => candidate.id === item.productId);
+      const product = visibleProducts().find((candidate) => candidate.id === item.productId);
       if (!product) return '';
       const price = unitPrice(product, item.quantity, account);
       const lineTotal = price * item.quantity;
@@ -1342,7 +1392,7 @@ function submitRequest(form: HTMLFormElement): void {
   const formData = new FormData(form);
   const account = currentAccount();
   const orderItems: OrderItem[] = storedCart.flatMap((cartItem) => {
-    const product = products.find((candidate) => candidate.id === cartItem.productId);
+    const product = visibleProducts().find((candidate) => candidate.id === cartItem.productId);
     if (!product) return [];
     const calculatedUnit = unitPrice(product, cartItem.quantity, account);
     return [
@@ -1391,6 +1441,237 @@ function orderStatusOptions(selected: OrderStatus): string {
     .join('');
 }
 
+function adminViewFromHash(): AdminView {
+  if (window.location.hash === '#admin-orders') return 'orders';
+  if (window.location.hash === '#admin-clients') return 'clients';
+  if (window.location.hash === '#admin-products') return 'products';
+  return 'overview';
+}
+
+function adminNavigation(view: AdminView, orderCount: number, clientCount: number, productCount: number): string {
+  const links: Array<{ view: AdminView; href: string; label: string; count?: number }> = [
+    { view: 'overview', href: '#admin', label: 'Огляд' },
+    { view: 'orders', href: '#admin-orders', label: 'Замовлення', count: orderCount },
+    { view: 'clients', href: '#admin-clients', label: 'Клієнти', count: clientCount },
+    { view: 'products', href: '#admin-products', label: 'Товари', count: productCount },
+  ];
+  return links
+    .map(
+      (link, index) => `
+        <a class="admin-nav__link${view === link.view ? ' is-active' : ''}" href="${link.href}"${view === link.view ? ' aria-current="page"' : ''}>
+          <span>${String(index + 1).padStart(2, '0')}</span>
+          <strong>${link.label}</strong>
+          ${link.count === undefined ? '' : `<b>${link.count}</b>`}
+        </a>
+      `,
+    )
+    .join('');
+}
+
+function adminFrame(account: Account, view: AdminView, content: string): string {
+  const storedOrders = orders();
+  const clients = accounts().filter((item) => item.role === 'client');
+  const productCount = catalogItems().length;
+  const notice = adminNotice
+    ? `<div class="admin-notice" role="status"><span>Готово</span><p>${escapeHtml(adminNotice)}</p></div>`
+    : '';
+  adminNotice = '';
+  return `
+    <div class="admin-workspace">
+      <aside class="admin-sidebar-nav">
+        <div class="admin-sidebar-nav__head">
+          <span class="technical-label">ToffiPacks / Control</span>
+          <h2>Управління</h2>
+          <p>Замовлення, клієнти й каталог в одному кабінеті.</p>
+        </div>
+        <nav class="admin-nav" aria-label="Розділи адмінки">
+          ${adminNavigation(view, storedOrders.length, clients.length, productCount)}
+        </nav>
+        <div class="admin-sidebar-nav__footer">
+          <span>Ви увійшли як</span>
+          <strong>${escapeHtml(account.name)}</strong>
+          <small>${escapeHtml(account.phone)}</small>
+          <button class="text-link" id="admin-logout" type="button">Вийти</button>
+        </div>
+      </aside>
+      <main class="admin-main">
+        ${notice}
+        ${content}
+      </main>
+    </div>
+  `;
+}
+
+function adminOrderCard(order: Order): string {
+  const searchable = `${order.id} ${order.customerName} ${order.phone} ${order.company}`.toLocaleLowerCase('uk-UA');
+  return `
+    <article class="order-card" data-admin-order data-status="${escapeHtml(order.status)}" data-search="${escapeHtml(searchable)}">
+      <div class="order-card__top">
+        <div><span>${escapeHtml(order.id)}</span><strong>${escapeHtml(order.customerName)}</strong></div>
+        <select class="select status-select" data-order-status="${escapeHtml(order.id)}">${orderStatusOptions(order.status)}</select>
+      </div>
+      <div class="order-card__grid">
+        <div><span>Контакт</span><a href="tel:${escapeHtml(order.phone)}">${escapeHtml(order.phone)}</a><small>Телефон клієнта</small></div>
+        <div><span>Позицій</span><strong>${order.items.length}</strong><small>${order.items.reduce((sum, item) => sum + item.quantity, 0).toLocaleString('uk-UA')} шт. загалом</small></div>
+        <div><span>Сума</span><strong>${formatMoney(order.total)}</strong><small>кінцева вартість</small></div>
+      </div>
+      <div class="order-card__items">
+        ${order.items
+          .map(
+            (item) => `
+              <div>
+                <span>№${escapeHtml(item.productNumber)}</span>
+                <strong>${dimensionText(item.dimensions)}</strong>
+                <small>${item.quantity.toLocaleString('uk-UA')} шт. · ${formatMoney(item.unitPrice)} / шт.</small>
+                <b>${formatMoney(item.total)}</b>
+              </div>
+            `,
+          )
+          .join('')}
+      </div>
+      ${order.company || order.comment ? `<p class="order-card__comment">${escapeHtml(order.company)}${order.company && order.comment ? ' · ' : ''}${escapeHtml(order.comment)}</p>` : ''}
+      <time datetime="${order.createdAt}">${new Date(order.createdAt).toLocaleString('uk-UA')}</time>
+    </article>
+  `;
+}
+
+function adminOverviewPage(storedOrders: Order[], clients: Account[]): string {
+  const openOrders = storedOrders.filter((order) => order.status !== 'Закрита').length;
+  const total = storedOrders.reduce((sum, order) => sum + order.total, 0);
+  const activeProducts = visibleProducts().length;
+  const latest = storedOrders.slice(0, 3);
+  return `
+    <div class="admin-page-heading admin-page-heading--overview">
+      <div><p class="eyebrow"><span></span> Панель керування</p><h1 id="admin-title">Все важливе<br />на одному екрані.</h1></div>
+      <p>Швидкий стан каталогу, заявок і клієнтів. Детальна робота винесена в окремі розділи.</p>
+    </div>
+    <div class="admin-stats admin-stats--large">
+      <article><span>Усі заявки</span><strong>${storedOrders.length}</strong><small>${openOrders} потребують уваги</small></article>
+      <article><span>Оборот заявок</span><strong>${formatMoney(total)}</strong><small>сума збережених розрахунків</small></article>
+      <article><span>Клієнти</span><strong>${clients.length}</strong><small>${clients.filter((client) => client.partner).length} постійних</small></article>
+      <article><span>Товари на сайті</span><strong>${activeProducts}</strong><small>${catalogItems().length - activeProducts} приховано</small></article>
+    </div>
+    <section class="admin-quick-grid" aria-label="Швидкі дії">
+      <a href="#admin-orders"><span>01</span><h2>Замовлення</h2><p>Змінюйте статус, телефонуйте клієнту й дивіться склад заявки.</p><b>Відкрити →</b></a>
+      <a href="#admin-products"><span>02</span><h2>Каталог</h2><p>Додавайте коробки, редагуйте розміри, ціни та видимість.</p><b>Керувати →</b></a>
+      <a href="#admin-clients"><span>03</span><h2>Клієнти</h2><p>Активуйте постійного клієнта та його персональні умови.</p><b>Переглянути →</b></a>
+    </section>
+    <section class="admin-section">
+      <div class="admin-section__head"><h2>Останні заявки</h2><a class="text-link" href="#admin-orders">Усі замовлення →</a></div>
+      <div class="orders-list">
+        ${latest.length ? latest.map(adminOrderCard).join('') : '<div class="admin-empty"><h3>Заявок ще немає.</h3><p>Нові замовлення з сайту з’являться тут.</p></div>'}
+      </div>
+    </section>
+  `;
+}
+
+function adminOrdersPage(storedOrders: Order[]): string {
+  const statuses: Array<OrderStatus | 'Усі'> = ['Усі', 'Нова', 'У роботі', 'Уточнення', 'Підтверджена', 'Закрита'];
+  return `
+    <div class="admin-page-heading">
+      <div><p class="eyebrow"><span></span> Замовлення</p><h1 id="admin-title">Заявки без хаосу.</h1></div>
+      <p>Пошук за клієнтом або номером, швидка зміна статусу та повний склад кожного замовлення.</p>
+    </div>
+    <div class="admin-toolbar">
+      <label class="admin-search"><span class="sr-only">Пошук заявок</span><input id="admin-order-search" type="search" value="${escapeHtml(adminOrderSearch)}" placeholder="Номер, ім’я або телефон" /></label>
+      <div class="admin-filter-chips" aria-label="Фільтр за статусом">
+        ${statuses.map((status) => `<button class="${adminOrderStatus === status ? 'is-active' : ''}" type="button" data-admin-order-filter="${status}">${status}</button>`).join('')}
+      </div>
+      <button class="button button--ghost button--small" type="button" data-export-orders>Експорт JSON</button>
+    </div>
+    <div class="admin-results-meta"><strong id="admin-order-count">${storedOrders.length}</strong><span>заявок показано</span></div>
+    <div class="orders-list" id="admin-orders-list">
+      ${storedOrders.length ? storedOrders.map(adminOrderCard).join('') : '<div class="admin-empty"><h3>Заявок ще немає.</h3><p>Нові замовлення з сайту з’являться тут.</p></div>'}
+    </div>
+  `;
+}
+
+function adminClientsPage(clients: Account[]): string {
+  return `
+    <div class="admin-page-heading">
+      <div><p class="eyebrow"><span></span> Клієнти</p><h1 id="admin-title">Контакти й особливі умови.</h1></div>
+      <p>Знайдіть клієнта за телефоном, активуйте статус постійного та налаштуйте персональну ціну.</p>
+    </div>
+    <div class="admin-toolbar admin-toolbar--clients">
+      <label class="admin-search"><span class="sr-only">Пошук клієнтів</span><input id="admin-client-search" type="search" placeholder="Ім’я, компанія або телефон" /></label>
+    </div>
+    <div class="clients-table clients-table--expanded">
+      <div class="clients-table__head"><span>Клієнт</span><span>Статус</span><span>Умови</span></div>
+      ${clients.length
+        ? clients
+            .map(
+              (client) => `
+                <div class="client-row" data-admin-client data-search="${escapeHtml(`${client.name} ${client.company} ${client.phone}`.toLocaleLowerCase('uk-UA'))}">
+                  <div><strong>${escapeHtml(client.name)}</strong><span>${escapeHtml(client.company || 'Без компанії')}</span><a href="tel:${escapeHtml(client.phone)}">${escapeHtml(client.phone)}</a></div>
+                  <label class="partner-toggle"><input type="checkbox" data-partner-toggle="${client.id}"${client.partner ? ' checked' : ''} /><span>${client.partner ? 'Постійний' : 'Звичайний'}</span></label>
+                  <label class="client-price-field"><span>Персональна ставка</span><input class="input" type="number" min="0" max="0.99" step="0.01" value="${client.fixedMarkup}" data-partner-markup="${client.id}"${client.partner ? '' : ' disabled'} /><small>грн / шт.</small></label>
+                </div>
+              `,
+            )
+            .join('')
+        : '<div class="admin-empty"><h3>Клієнтів ще немає.</h3></div>'}
+    </div>
+  `;
+}
+
+function filteredAdminProducts(): ManagedProduct[] {
+  const search = adminProductSearch.trim().toLocaleLowerCase('uk-UA');
+  return catalogItems().filter((product) => {
+    const matchesSearch = !search || `${product.number} ${product.name} ${dimensionText(product.dimensions)}`.toLocaleLowerCase('uk-UA').includes(search);
+    const matchesVisibility = adminProductVisibility === 'all' || (adminProductVisibility === 'active' ? product.active : !product.active);
+    return matchesSearch && matchesVisibility;
+  });
+}
+
+function adminProductList(): string {
+  const products = filteredAdminProducts();
+  if (!products.length) return '<div class="admin-empty"><h3>Нічого не знайдено.</h3><p>Змініть пошук або фільтр видимості.</p></div>';
+  return products
+    .map(
+      (product) => `
+        <article class="admin-product-card${product.active ? '' : ' is-hidden'}" data-admin-product="${product.id}">
+          <div class="admin-product-card__visual">${boxDiagram(product, false)}</div>
+          <div class="admin-product-card__content">
+            <div class="admin-product-card__top"><span>№${escapeHtml(product.number)}</span><b>${product.active ? 'На сайті' : 'Приховано'}</b></div>
+            <h3>${dimensionText(product.dimensions)}</h3>
+            <p>${escapeHtml(product.name)}</p>
+            <dl>
+              <div><dt>1–999 шт.</dt><dd>${formatMoney(publicUnitPrice(product, 1))}</dd></div>
+              <div><dt>від 1000 шт.</dt><dd>${formatMoney(publicUnitPrice(product, WHOLESALE_FROM))}</dd></div>
+            </dl>
+            <div class="admin-product-card__actions">
+              <button class="button button--primary button--small" type="button" data-edit-product="${product.id}">Редагувати</button>
+              <button class="button button--ghost button--small" type="button" data-toggle-product="${product.id}">${product.active ? 'Приховати' : 'Показати'}</button>
+              <button class="admin-danger-link" type="button" data-delete-product="${product.id}">Видалити</button>
+            </div>
+          </div>
+        </article>
+      `,
+    )
+    .join('');
+}
+
+function adminProductsPage(): string {
+  return `
+    <div class="admin-page-heading admin-page-heading--products">
+      <div><p class="eyebrow"><span></span> Товари</p><h1 id="admin-title">Каталог під контролем.</h1></div>
+      <div class="admin-page-heading__action"><p>Окрема сторінка для розмірів, цін і видимості коробок.</p><button class="button button--primary" type="button" data-create-product>Додати коробку</button></div>
+    </div>
+    <div class="admin-toolbar admin-toolbar--products">
+      <label class="admin-search"><span class="sr-only">Пошук товарів</span><input id="admin-product-search" type="search" value="${escapeHtml(adminProductSearch)}" placeholder="Номер або розмір" /></label>
+      <div class="admin-filter-chips" aria-label="Фільтр товарів">
+        <button class="${adminProductVisibility === 'all' ? 'is-active' : ''}" type="button" data-product-filter="all">Усі</button>
+        <button class="${adminProductVisibility === 'active' ? 'is-active' : ''}" type="button" data-product-filter="active">На сайті</button>
+        <button class="${adminProductVisibility === 'hidden' ? 'is-active' : ''}" type="button" data-product-filter="hidden">Приховані</button>
+      </div>
+      <button class="button button--ghost button--small" type="button" data-export-products>Експорт</button>
+      <button class="admin-danger-link" type="button" data-reset-products>Відновити початкові</button>
+    </div>
+    <div class="admin-results-meta"><strong id="admin-product-count">${filteredAdminProducts().length}</strong><span>товарів показано</span></div>
+    <div class="admin-products-grid" id="admin-product-list">${adminProductList()}</div>
+  `;
+}
+
 function renderAdmin(): void {
   const content = document.querySelector<HTMLDivElement>('#admin-content');
   if (!content) return;
@@ -1399,8 +1680,8 @@ function renderAdmin(): void {
     content.innerHTML = `
       <div class="admin-login">
         <p class="eyebrow"><span></span> Для менеджера</p>
-        <h1 id="admin-title">Вхід для менеджера.</h1>
-        <p>Увійдіть, щоб переглядати заявки та керувати статусами клієнтів.</p>
+        <h1 id="admin-title">Вхід до керування.</h1>
+        <p>Замовлення, клієнти та каталог доступні тільки менеджеру.</p>
         <form id="admin-login-form" class="auth-form" novalidate>
           <label class="field"><span>Телефон</span><input class="input" name="phone" type="tel" autocomplete="tel" required /></label>
           <label class="field"><span>Пароль</span><input class="input" name="password" type="password" autocomplete="current-password" required /></label>
@@ -1414,87 +1695,177 @@ function renderAdmin(): void {
 
   const storedOrders = orders().slice().reverse();
   const clients = accounts().filter((item) => item.role === 'client');
-  const openOrders = storedOrders.filter((order) => order.status !== 'Закрита').length;
-  const total = storedOrders.reduce((sum, order) => sum + order.total, 0);
+  const view = adminViewFromHash();
+  let pageContent = adminOverviewPage(storedOrders, clients);
+  if (view === 'orders') pageContent = adminOrdersPage(storedOrders);
+  if (view === 'clients') pageContent = adminClientsPage(clients);
+  if (view === 'products') pageContent = adminProductsPage();
+  content.innerHTML = adminFrame(account, view, pageContent);
+  if (view === 'orders') filterAdminOrders();
+}
 
-  content.innerHTML = `
-    <div class="admin-shell">
-      <div class="admin-title-row">
-        <div>
-          <p class="eyebrow"><span></span> Кабінет менеджера</p>
-          <h1 id="admin-title">Заявки та клієнти.</h1>
+function filterAdminOrders(): void {
+  const search = adminOrderSearch.trim().toLocaleLowerCase('uk-UA');
+  let visible = 0;
+  document.querySelectorAll<HTMLElement>('[data-admin-order]').forEach((card) => {
+    const matchesSearch = !search || (card.dataset.search ?? '').includes(search);
+    const matchesStatus = adminOrderStatus === 'Усі' || card.dataset.status === adminOrderStatus;
+    card.hidden = !(matchesSearch && matchesStatus);
+    if (!card.hidden) visible += 1;
+  });
+  const count = document.querySelector<HTMLElement>('#admin-order-count');
+  if (count) count.textContent = String(visible);
+}
+
+function filterAdminClients(value: string): void {
+  const search = value.trim().toLocaleLowerCase('uk-UA');
+  document.querySelectorAll<HTMLElement>('[data-admin-client]').forEach((row) => {
+    row.hidden = Boolean(search) && !(row.dataset.search ?? '').includes(search);
+  });
+}
+
+function renderAdminProductList(): void {
+  const list = document.querySelector<HTMLElement>('#admin-product-list');
+  if (list) list.innerHTML = adminProductList();
+  const count = document.querySelector<HTMLElement>('#admin-product-count');
+  if (count) count.textContent = String(filteredAdminProducts().length);
+}
+
+function refreshProductSurfaces(): void {
+  const available = visibleProducts();
+  if (!available.length) return;
+  if (!available.some((product) => product.id === selectedProductId)) selectedProductId = available[0].id;
+  const options = productOptions();
+  document.querySelectorAll<HTMLSelectElement>('#calculator-product-select, #hero-product-select').forEach((select) => {
+    select.innerHTML = options;
+    select.value = selectedProductId;
+  });
+  const heroCount = document.querySelector<HTMLElement>('#hero-product-count');
+  if (heroCount) heroCount.textContent = String(available.length);
+  const catalogLabel = document.querySelector<HTMLElement>('#catalog-ready-label');
+  if (catalogLabel) catalogLabel.innerHTML = `<span></span> ${available.length} готових розмірів`;
+  renderCatalog(false);
+  renderCalculator();
+  renderCart();
+}
+
+function productEditorMarkup(product?: ManagedProduct): string {
+  const isEditing = Boolean(product);
+  const model: ManagedProduct = product ?? {
+    id: '',
+    number: '',
+    name: '',
+    dimensions: { length: 180, width: 120, height: 50 },
+    basePrice: 5,
+    active: true,
+    updatedAt: now,
+  };
+  return `
+    <div class="admin-product-editor">
+      <p class="eyebrow"><span></span> ${isEditing ? 'Редагування товару' : 'Новий товар'}</p>
+      <h2 id="admin-product-dialog-title">${isEditing ? `Коробка №${escapeHtml(model.number)}` : 'Додати коробку'}</h2>
+      <p>Після збереження товар одразу оновиться в каталозі та калькуляторі.</p>
+      <form id="admin-product-form" novalidate>
+        <input type="hidden" name="productId" value="${escapeHtml(model.id)}" />
+        <div class="admin-editor-grid admin-editor-grid--identity">
+          <label class="field"><span>Номер *</span><input class="input" name="number" value="${escapeHtml(model.number)}" maxlength="20" required /></label>
+          <label class="field"><span>Назва</span><input class="input" name="name" value="${escapeHtml(model.name)}" placeholder="Самозбірна коробка" /></label>
         </div>
-        <div>
-          <span>${escapeHtml(account.phone)}</span>
-          <button class="text-link" id="admin-logout" type="button">Вийти</button>
+        <fieldset class="admin-editor-fieldset">
+          <legend>Внутрішній розмір, мм</legend>
+          <div class="admin-editor-grid admin-editor-grid--dimensions">
+            <label class="field"><span>Довжина *</span><input class="input" name="length" type="number" min="1" max="2000" value="${model.dimensions.length}" required /></label>
+            <label class="field"><span>Ширина *</span><input class="input" name="width" type="number" min="1" max="2000" value="${model.dimensions.width}" required /></label>
+            <label class="field"><span>Висота *</span><input class="input" name="height" type="number" min="1" max="2000" value="${model.dimensions.height}" required /></label>
+          </div>
+        </fieldset>
+        <div class="admin-editor-grid admin-editor-grid--price">
+          <label class="field"><span>Базова ціна, грн *</span><input class="input" name="basePrice" type="number" min="0.01" max="10000" step="0.01" value="${model.basePrice}" required /></label>
+          <div class="admin-editor-price-preview"><span>На сайті зараз</span><strong>${formatMoney(publicUnitPrice(model, 1))}</strong><small>опт: ${formatMoney(publicUnitPrice(model, WHOLESALE_FROM))}</small></div>
         </div>
-      </div>
-      <div class="admin-stats">
-        <article><span>Усі заявки</span><strong>${storedOrders.length}</strong></article>
-        <article><span>Активні</span><strong>${openOrders}</strong></article>
-        <article><span>Клієнти</span><strong>${clients.length}</strong></article>
-        <article><span>Загальна сума</span><strong>${formatMoney(total)}</strong></article>
-      </div>
-      <section class="admin-section">
-        <div class="admin-section__head"><h2>Заявки</h2><span>${storedOrders.length} записів</span></div>
-        <div class="orders-list">
-          ${
-            storedOrders.length
-              ? storedOrders
-                  .map(
-                    (order) => `
-                      <article class="order-card">
-                        <div class="order-card__top">
-                          <div><span>${escapeHtml(order.id)}</span><strong>${escapeHtml(order.customerName)}</strong></div>
-                          <select class="select status-select" data-order-status="${escapeHtml(order.id)}">${orderStatusOptions(order.status)}</select>
-                        </div>
-                        <div class="order-card__grid">
-                          <div><span>Контакт</span><a href="tel:${escapeHtml(order.phone)}">${escapeHtml(order.phone)}</a><small>Телефон клієнта</small></div>
-                          <div><span>Позицій</span><strong>${order.items.length}</strong><small>${order.items.reduce((sum, item) => sum + item.quantity, 0).toLocaleString('uk-UA')} шт. загалом</small></div>
-                          <div><span>Сума</span><strong>${formatMoney(order.total)}</strong><small>кінцева вартість</small></div>
-                        </div>
-                        <div class="order-card__items">
-                          ${order.items
-                            .map(
-                              (item) => `
-                                <div>
-                                  <span>№${escapeHtml(item.productNumber)}</span>
-                                  <strong>${dimensionText(item.dimensions)}</strong>
-                                  <small>${item.quantity.toLocaleString('uk-UA')} шт. · ${formatMoney(item.unitPrice)} / шт.</small>
-                                  <b>${formatMoney(item.total)}</b>
-                                </div>
-                              `,
-                            )
-                            .join('')}
-                        </div>
-                        ${order.company || order.comment ? `<p class="order-card__comment">${escapeHtml(order.company)}${order.company && order.comment ? ' · ' : ''}${escapeHtml(order.comment)}</p>` : ''}
-                        <time datetime="${order.createdAt}">${new Date(order.createdAt).toLocaleString('uk-UA')}</time>
-                      </article>
-                    `,
-                  )
-                  .join('')
-              : '<div class="empty-state"><h3>Заявок ще немає.</h3><p>Нові заявки з’являться в цьому розділі.</p></div>'
-          }
+        <label class="checkbox admin-editor-active"><input name="active" type="checkbox"${model.active ? ' checked' : ''} /><span>Показувати товар у каталозі</span></label>
+        <div class="form-status" data-product-form-status aria-live="polite"></div>
+        <div class="admin-editor-actions">
+          <button class="button button--ghost" type="button" data-close-admin-product>Скасувати</button>
+          <button class="button button--primary" type="submit">${isEditing ? 'Зберегти зміни' : 'Створити товар'}</button>
         </div>
-      </section>
-      <section class="admin-section">
-        <div class="admin-section__head"><h2>Клієнти</h2><span>Персональні умови</span></div>
-        <div class="clients-table">
-          <div class="clients-table__head"><span>Клієнт</span><span>Персональна ціна</span></div>
-          ${clients
-            .map(
-              (client) => `
-                <div class="client-row">
-                  <div><strong>${escapeHtml(client.name)}</strong><span>${escapeHtml(client.company || 'Без компанії')}</span><a href="tel:${escapeHtml(client.phone)}">${escapeHtml(client.phone)}</a></div>
-                  <label class="partner-toggle"><input type="checkbox" data-partner-toggle="${client.id}"${client.partner ? ' checked' : ''} /><span>${client.partner ? 'Активна' : 'Неактивна'}</span></label>
-                </div>
-              `,
-            )
-            .join('')}
-        </div>
-      </section>
+      </form>
     </div>
   `;
+}
+
+function openAdminProductEditor(productId?: string): void {
+  const dialog = document.querySelector<HTMLDialogElement>('#admin-product-dialog');
+  const content = document.querySelector<HTMLElement>('#admin-product-editor');
+  if (!dialog || !content) return;
+  const product = productId ? catalogItems().find((item) => item.id === productId) : undefined;
+  content.innerHTML = productEditorMarkup(product);
+  if (typeof dialog.showModal === 'function') dialog.showModal();
+  else dialog.setAttribute('open', '');
+  content.querySelector<HTMLInputElement>('input[name="number"]')?.focus();
+}
+
+function handleAdminProductSave(form: HTMLFormElement): void {
+  form.classList.add('was-validated');
+  const status = form.querySelector<HTMLElement>('[data-product-form-status]');
+  if (!form.reportValidity()) {
+    if (status) {
+      status.className = 'form-status is-error';
+      status.textContent = 'Перевірте обов’язкові поля.';
+    }
+    return;
+  }
+  const data = new FormData(form);
+  const productId = String(data.get('productId') ?? '');
+  const number = String(data.get('number') ?? '').trim();
+  const stored = catalogItems();
+  const existing = stored.find((product) => product.id === productId);
+  if (stored.some((product) => product.number.toLocaleLowerCase('uk-UA') === number.toLocaleLowerCase('uk-UA') && product.id !== productId)) {
+    if (status) {
+      status.className = 'form-status is-error';
+      status.textContent = 'Товар із таким номером уже існує.';
+    }
+    return;
+  }
+  const active = data.get('active') === 'on';
+  if (existing?.active && !active && visibleProducts().length <= 1) {
+    if (status) {
+      status.className = 'form-status is-error';
+      status.textContent = 'У каталозі має залишитися хоча б один активний товар.';
+    }
+    return;
+  }
+  const id = existing?.id ?? `box-${number.toLocaleLowerCase('uk-UA').replace(/[^a-zа-яіїєґ0-9]+/giu, '-')}-${Date.now().toString(36)}`;
+  const updated: ManagedProduct = {
+    ...existing,
+    id,
+    number,
+    name: String(data.get('name') ?? '').trim() || `Самозбірна коробка №${number}`,
+    dimensions: {
+      length: Number(data.get('length')),
+      width: Number(data.get('width')),
+      height: Number(data.get('height')),
+    },
+    basePrice: Number(data.get('basePrice')),
+    active,
+    updatedAt: new Date().toISOString(),
+  };
+  const next = existing ? stored.map((product) => (product.id === existing.id ? updated : product)) : [...stored, updated];
+  saveCatalog(next);
+  refreshProductSurfaces();
+  document.querySelector<HTMLDialogElement>('#admin-product-dialog')?.close();
+  adminNotice = existing ? `Товар №${number} оновлено.` : `Товар №${number} додано до каталогу.`;
+  renderAdmin();
+}
+
+function downloadJson(filename: string, value: unknown): void {
+  const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function syncRoute(): void {
@@ -1504,7 +1875,7 @@ function syncRoute(): void {
   const header = document.querySelector<HTMLElement>('.site-header');
   const footer = document.querySelector<HTMLElement>('.site-footer');
   const strip = document.querySelector<HTMLElement>('.demo-strip');
-  const showAdmin = window.location.hash === '#admin';
+  const showAdmin = ['#admin', '#admin-orders', '#admin-clients', '#admin-products'].includes(window.location.hash);
   const showAccount = window.location.hash === '#account';
   if (adminPage) adminPage.hidden = !showAdmin;
   if (accountPage) accountPage.hidden = !showAccount;
@@ -1781,12 +2152,106 @@ document.addEventListener('click', (event) => {
     return;
   }
 
+  if (target.closest('[data-create-product]')) {
+    openAdminProductEditor();
+    return;
+  }
+
+  const editProduct = target.closest<HTMLElement>('[data-edit-product]');
+  if (editProduct?.dataset.editProduct) {
+    openAdminProductEditor(editProduct.dataset.editProduct);
+    return;
+  }
+
+  if (target.closest('[data-close-admin-product]')) {
+    document.querySelector<HTMLDialogElement>('#admin-product-dialog')?.close();
+    return;
+  }
+
+  const toggleProduct = target.closest<HTMLElement>('[data-toggle-product]');
+  if (toggleProduct?.dataset.toggleProduct) {
+    const stored = catalogItems();
+    const product = stored.find((item) => item.id === toggleProduct.dataset.toggleProduct);
+    if (product) {
+      if (product.active && visibleProducts().length <= 1) {
+        adminNotice = 'У каталозі має залишитися хоча б один активний товар.';
+      } else {
+        product.active = !product.active;
+        product.updatedAt = new Date().toISOString();
+        saveCatalog(stored);
+        refreshProductSurfaces();
+        adminNotice = product.active ? `Товар №${product.number} повернуто на сайт.` : `Товар №${product.number} приховано.`;
+      }
+      renderAdmin();
+    }
+    return;
+  }
+
+  const deleteProduct = target.closest<HTMLElement>('[data-delete-product]');
+  if (deleteProduct?.dataset.deleteProduct) {
+    const stored = catalogItems();
+    const product = stored.find((item) => item.id === deleteProduct.dataset.deleteProduct);
+    if (!product) return;
+    if (product.active && visibleProducts().length <= 1) {
+      adminNotice = 'Не можна видалити останній активний товар.';
+      renderAdmin();
+      return;
+    }
+    if (window.confirm(`Видалити коробку №${product.number}? Цю дію не можна скасувати.`)) {
+      saveCatalog(stored.filter((item) => item.id !== product.id));
+      writeStorage(STORAGE.cart, cartItems().filter((item) => item.productId !== product.id));
+      refreshProductSurfaces();
+      adminNotice = `Товар №${product.number} видалено.`;
+      renderAdmin();
+    }
+    return;
+  }
+
+  const productFilter = target.closest<HTMLButtonElement>('[data-product-filter]');
+  if (productFilter?.dataset.productFilter) {
+    adminProductVisibility = productFilter.dataset.productFilter as ProductVisibility;
+    renderAdmin();
+    return;
+  }
+
+  const orderFilter = target.closest<HTMLButtonElement>('[data-admin-order-filter]');
+  if (orderFilter?.dataset.adminOrderFilter) {
+    adminOrderStatus = orderFilter.dataset.adminOrderFilter as OrderStatus | 'Усі';
+    document.querySelectorAll<HTMLButtonElement>('[data-admin-order-filter]').forEach((button) => {
+      button.classList.toggle('is-active', button === orderFilter);
+    });
+    filterAdminOrders();
+    return;
+  }
+
+  if (target.closest('[data-export-orders]')) {
+    downloadJson(`toffipacks-orders-${new Date().toISOString().slice(0, 10)}.json`, orders());
+    return;
+  }
+
+  if (target.closest('[data-export-products]')) {
+    downloadJson(`toffipacks-products-${new Date().toISOString().slice(0, 10)}.json`, catalogItems());
+    return;
+  }
+
+  if (target.closest('[data-reset-products]')) {
+    if (window.confirm('Відновити початковий каталог? Усі ручні зміни товарів буде втрачено.')) {
+      saveCatalog(seedProducts.map((product) => ({ ...product, active: true, updatedAt: new Date().toISOString() })));
+      refreshProductSurfaces();
+      adminNotice = 'Початковий каталог відновлено.';
+      renderAdmin();
+    }
+    return;
+  }
+
   if (target.closest('#admin-logout')) {
     localStorage.removeItem(STORAGE.session);
     renderAccountButton();
     renderCalculator();
     renderCatalog(false);
+    window.location.hash = 'admin';
     renderAdmin();
+    return;
   }
 });
 
@@ -1794,6 +2259,30 @@ document.addEventListener('input', (event) => {
   const target = event.target;
   if (target instanceof HTMLInputElement && target.id === 'modal-quantity-input') {
     setQuantity(Number(target.value));
+    return;
+  }
+  if (target instanceof HTMLInputElement && target.id === 'admin-product-search') {
+    adminProductSearch = target.value;
+    renderAdminProductList();
+    return;
+  }
+  if (target instanceof HTMLInputElement && target.id === 'admin-order-search') {
+    adminOrderSearch = target.value;
+    filterAdminOrders();
+    return;
+  }
+  if (target instanceof HTMLInputElement && target.id === 'admin-client-search') {
+    filterAdminClients(target.value);
+    return;
+  }
+  if (target instanceof HTMLInputElement && target.name === 'basePrice' && target.closest('#admin-product-form')) {
+    const basePrice = Number(target.value) || 0;
+    const model = { ...selectedProduct(), basePrice };
+    const preview = target.closest('form')?.querySelector<HTMLElement>('.admin-editor-price-preview');
+    const retail = preview?.querySelector<HTMLElement>('strong');
+    const wholesale = preview?.querySelector<HTMLElement>('small');
+    if (retail) retail.textContent = formatMoney(publicUnitPrice(model, 1));
+    if (wholesale) wholesale.textContent = `опт: ${formatMoney(publicUnitPrice(model, WHOLESALE_FROM))}`;
   }
 });
 
@@ -1817,6 +2306,9 @@ document.addEventListener('submit', (event) => {
   } else if (form.id === 'admin-login-form') {
     event.preventDefault();
     handleLogin(form, true);
+  } else if (form.id === 'admin-product-form') {
+    event.preventDefault();
+    handleAdminProductSave(form);
   }
 });
 
@@ -1867,6 +2359,10 @@ document.querySelector<HTMLDialogElement>('#product-dialog')?.addEventListener('
     (event.currentTarget as HTMLDialogElement).close();
     activeProductDialogId = null;
   }
+});
+
+document.querySelector<HTMLDialogElement>('#admin-product-dialog')?.addEventListener('click', (event) => {
+  if (event.target === event.currentTarget) (event.currentTarget as HTMLDialogElement).close();
 });
 
 window.addEventListener('hashchange', syncRoute);
