@@ -4586,6 +4586,8 @@ svg {
 }
 
 .admin-main {
+  position: relative;
+  z-index: 2;
   min-width: 0;
 }
 
@@ -4804,6 +4806,11 @@ svg {
   backdrop-filter: blur(12px);
 }
 
+.admin-toolbar:has(.admin-calendar.is-open) {
+  position: relative;
+  z-index: 80;
+}
+
 .admin-toolbar--products {
   grid-template-columns: minmax(230px, 1fr) auto auto auto auto;
 }
@@ -4901,7 +4908,7 @@ svg {
   z-index: 70;
   top: calc(100% + 9px);
   right: 0;
-  width: 330px;
+  width: 352px;
   padding: 16px;
   background: var(--white);
   border: 1px solid var(--line);
@@ -4953,6 +4960,58 @@ svg {
   stroke-width: 1.7;
 }
 
+.admin-calendar__range-state {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 10px;
+  background: var(--forest-light);
+  border: 1px solid rgba(36, 92, 71, 0.12);
+  border-radius: 14px;
+}
+
+.admin-calendar__range-state > span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  color: var(--white);
+  background: var(--forest);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.admin-calendar__range-state.is-pending > span {
+  color: var(--pine);
+  background: var(--gold-light);
+  box-shadow: inset 0 0 0 1px rgba(128, 74, 39, 0.18);
+}
+
+.admin-calendar__range-state > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.admin-calendar__range-state strong,
+.admin-calendar__range-state small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-calendar__range-state strong {
+  font-size: 11px;
+}
+
+.admin-calendar__range-state small {
+  color: var(--ink-soft);
+  font-size: 8px;
+}
+
 .admin-calendar__weekdays,
 .admin-calendar__days {
   display: grid;
@@ -4998,6 +5057,12 @@ svg {
 .admin-calendar__days button.is-outside {
   color: var(--line-dark);
   font-weight: 500;
+}
+
+.admin-calendar__days button.is-in-range {
+  color: var(--pine);
+  background: var(--forest-light);
+  border-radius: 10px;
 }
 
 .admin-calendar__days button.is-today::after {
@@ -5050,6 +5115,12 @@ svg {
 .admin-calendar__footer button:disabled {
   opacity: 0.38;
   pointer-events: none;
+}
+
+.admin-calendar__footer small {
+  color: var(--ink-soft);
+  font-size: 8px;
+  font-weight: 700;
 }
 
 .admin-file-button {

@@ -176,6 +176,7 @@ let adminProductVisibility: ProductVisibility = 'all';
 let adminOrderSearch = '';
 let adminOrderStatus: OrderStatus | 'Усі' = 'Усі';
 let adminOrderDate = '';
+let adminOrderDateEnd = '';
 let adminCalendarCursor = '';
 let adminNotice = '';
 
@@ -1834,6 +1835,14 @@ function dateFromKey(value: string): Date {
   return new Date(year, Math.max(0, (month || 1) - 1), day || 1, 12);
 }
 
+function formatAdminDate(value: string): string {
+  return dateFromKey(value).toLocaleDateString('uk-UA', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
 function adminCalendarMarkup(open = false): string {
   const today = new Date();
   const todayKey = dateKey(today);
@@ -1849,23 +1858,52 @@ function adminCalendarMarkup(open = false): string {
     date.setDate(gridStart.getDate() + index);
     const value = dateKey(date);
     const outside = date.getMonth() !== cursor.getMonth();
-    const selected = value === adminOrderDate;
+    const rangeStart = value === adminOrderDate;
+    const rangeEnd = value === adminOrderDateEnd;
+    const selected = rangeStart || rangeEnd;
+    const inRange = Boolean(adminOrderDate && adminOrderDateEnd && value > adminOrderDate && value < adminOrderDateEnd);
     const isToday = value === todayKey;
-    const classes = [outside ? 'is-outside' : '', selected ? 'is-selected' : '', isToday ? 'is-today' : '']
+    const classes = [
+      outside ? 'is-outside' : '',
+      inRange ? 'is-in-range' : '',
+      rangeStart ? 'is-range-start' : '',
+      rangeEnd ? 'is-range-end' : '',
+      selected ? 'is-selected' : '',
+      isToday ? 'is-today' : '',
+    ]
       .filter(Boolean)
       .join(' ');
-    return `<button class="${classes}" type="button" data-calendar-date="${value}" aria-label="${date.toLocaleDateString('uk-UA', { day: 'numeric', month: 'long', year: 'numeric' })}"${selected ? ' aria-current="date"' : ''}>${date.getDate()}</button>`;
+    return `<button class="${classes}" type="button" data-calendar-date="${value}" aria-label="${date.toLocaleDateString('uk-UA', { day: 'numeric', month: 'long', year: 'numeric' })}" aria-pressed="${selected}">${date.getDate()}</button>`;
   }).join('');
-  const selectedLabel = adminOrderDate ? dateFromKey(adminOrderDate).toLocaleDateString('uk-UA') : 'Усі дати';
+  const selectedLabel = adminOrderDate
+    ? adminOrderDateEnd && adminOrderDateEnd !== adminOrderDate
+      ? `${formatAdminDate(adminOrderDate)} — ${formatAdminDate(adminOrderDateEnd)}`
+      : formatAdminDate(adminOrderDate)
+    : 'Усі дати';
+  const rangeDays = adminOrderDate && adminOrderDateEnd
+    ? Math.round((dateFromKey(adminOrderDateEnd).getTime() - dateFromKey(adminOrderDate).getTime()) / 86_400_000) + 1
+    : 0;
+  const rangeTitle = !adminOrderDate
+    ? 'Оберіть початок'
+    : !adminOrderDateEnd
+      ? 'Тепер оберіть кінець'
+      : rangeDays === 1
+        ? 'Обрано один день'
+        : `Обрано ${rangeDays} дн.`;
+  const rangeCaption = !adminOrderDate
+    ? 'Перший клік — початкова дата'
+    : !adminOrderDateEnd
+      ? `Початок: ${formatAdminDate(adminOrderDate)}`
+      : `${formatAdminDate(adminOrderDate)} — ${formatAdminDate(adminOrderDateEnd)}`;
   const monthLabel = cursor.toLocaleDateString('uk-UA', { month: 'long', year: 'numeric' });
   return `
     <div class="admin-calendar${open ? ' is-open' : ''}" data-admin-calendar>
       <button class="admin-calendar__trigger" type="button" data-calendar-trigger aria-haspopup="dialog" aria-expanded="${open}">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2v3m10-3v3M3 8h14M4 4h12a1 1 0 0 1 1 1v12H3V5a1 1 0 0 1 1-1Z" /></svg>
-        <span><small>Дата заявки</small><strong>${escapeHtml(selectedLabel)}</strong></span>
+        <span><small>Період заявок</small><strong>${escapeHtml(selectedLabel)}</strong></span>
         <svg class="admin-calendar__chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
       </button>
-      <div class="admin-calendar__popover" role="dialog" aria-label="Оберіть дату заявки"${open ? '' : ' hidden'}>
+      <div class="admin-calendar__popover" role="dialog" aria-label="Оберіть період заявок"${open ? '' : ' hidden'}>
         <div class="admin-calendar__head">
           <strong>${escapeHtml(monthLabel)}</strong>
           <div>
@@ -1873,11 +1911,15 @@ function adminCalendarMarkup(open = false): string {
             <button type="button" data-calendar-month="1" aria-label="Наступний місяць"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg></button>
           </div>
         </div>
+        <div class="admin-calendar__range-state${adminOrderDate && !adminOrderDateEnd ? ' is-pending' : ''}" aria-live="polite">
+          <span aria-hidden="true">${adminOrderDate && adminOrderDateEnd ? '✓' : adminOrderDate ? '2' : '1'}</span>
+          <div><strong>${escapeHtml(rangeTitle)}</strong><small>${escapeHtml(rangeCaption)}</small></div>
+        </div>
         <div class="admin-calendar__weekdays" aria-hidden="true">${['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд'].map((day) => `<span>${day}</span>`).join('')}</div>
         <div class="admin-calendar__days">${days}</div>
         <div class="admin-calendar__footer">
           <button type="button" data-calendar-clear${adminOrderDate ? '' : ' disabled'}>Очистити</button>
-          <button type="button" data-calendar-today>Сьогодні</button>
+          <small>Дати включно</small>
         </div>
       </div>
     </div>
@@ -2184,7 +2226,10 @@ function filterAdminOrders(): void {
   document.querySelectorAll<HTMLElement>('[data-admin-order]').forEach((card) => {
     const matchesSearch = !search || (card.dataset.search ?? '').includes(search);
     const matchesStatus = adminOrderStatus === 'Усі' || card.dataset.status === adminOrderStatus;
-    const matchesDate = !adminOrderDate || card.dataset.date === adminOrderDate;
+    const orderDate = card.dataset.date ?? '';
+    const matchesDate = !adminOrderDate
+      || (!adminOrderDateEnd && orderDate === adminOrderDate)
+      || Boolean(adminOrderDateEnd && orderDate >= adminOrderDate && orderDate <= adminOrderDateEnd);
     card.hidden = !(matchesSearch && matchesStatus && matchesDate);
     if (!card.hidden) visible += 1;
   });
@@ -2878,23 +2923,26 @@ document.addEventListener('click', (event) => {
 
   const calendarDate = target.closest<HTMLButtonElement>('[data-calendar-date]');
   if (calendarDate?.dataset.calendarDate) {
-    adminOrderDate = calendarDate.dataset.calendarDate;
-    adminCalendarCursor = adminOrderDate;
-    replaceAdminCalendar(false);
+    const selectedDate = calendarDate.dataset.calendarDate;
+    adminCalendarCursor = selectedDate;
+    if (!adminOrderDate || adminOrderDateEnd) {
+      adminOrderDate = selectedDate;
+      adminOrderDateEnd = '';
+      replaceAdminCalendar(true, `[data-calendar-date="${selectedDate}"]`);
+    } else {
+      adminOrderDateEnd = selectedDate;
+      if (adminOrderDateEnd < adminOrderDate) {
+        [adminOrderDate, adminOrderDateEnd] = [adminOrderDateEnd, adminOrderDate];
+      }
+      replaceAdminCalendar(false);
+    }
     filterAdminOrders();
     return;
   }
 
   if (target.closest('[data-calendar-clear]')) {
     adminOrderDate = '';
-    replaceAdminCalendar(false);
-    filterAdminOrders();
-    return;
-  }
-
-  if (target.closest('[data-calendar-today]')) {
-    adminOrderDate = dateKey(new Date());
-    adminCalendarCursor = adminOrderDate;
+    adminOrderDateEnd = '';
     replaceAdminCalendar(false);
     filterAdminOrders();
     return;
