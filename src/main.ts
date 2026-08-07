@@ -176,6 +176,7 @@ let adminProductVisibility: ProductVisibility = 'all';
 let adminOrderSearch = '';
 let adminOrderStatus: OrderStatus | 'Усі' = 'Усі';
 let adminOrderDate = '';
+let adminCalendarCursor = '';
 let adminNotice = '';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -1317,7 +1318,17 @@ function renderCart(): void {
   if (!storedCart.length) {
     container.innerHTML = `
       <div class="cart-empty">
-        <span aria-hidden="true">□</span>
+        <div class="cart-empty__visual" aria-hidden="true">
+          <svg viewBox="0 0 132 92" fill="none">
+            <path class="cart-empty__lid" d="M20 34 53 14h58L78 34H20Z" />
+            <path class="cart-empty__front" d="M20 34h58v40H20V34Z" />
+            <path class="cart-empty__side" d="m78 34 33-20v40L78 74V34Z" />
+            <path d="M20 34h58m0 0 33-20M78 34v40M20 74h58l33-20V14H53L20 34v40Z" />
+            <path class="cart-empty__fold" d="m20 34 30 12 28-12" />
+            <circle cx="110" cy="71" r="15" />
+            <path class="cart-empty__plus" d="M110 64v14m-7-7h14" />
+          </svg>
+        </div>
         <strong>Кошик порожній</strong>
         <p>Оберіть розмір і додайте потрібну кількість коробок.</p>
         <a class="button button--ghost button--small" href="#catalog">Обрати коробки</a>
@@ -1778,11 +1789,99 @@ function submitRequest(form: HTMLFormElement): void {
   form.querySelector<HTMLButtonElement>('button[type="submit"]')?.focus();
 }
 
-function orderStatusOptions(selected: OrderStatus): string {
-  const statuses: OrderStatus[] = ['Нова', 'У роботі', 'Уточнення', 'Підтверджена', 'Закрита'];
-  return statuses
-    .map((status) => `<option value="${status}"${status === selected ? ' selected' : ''}>${status}</option>`)
-    .join('');
+const ORDER_STATUSES: OrderStatus[] = ['Нова', 'У роботі', 'Уточнення', 'Підтверджена', 'Закрита'];
+
+function orderStatusClass(status: OrderStatus): string {
+  if (status === 'Нова') return 'is-new';
+  if (status === 'У роботі') return 'is-progress';
+  if (status === 'Уточнення') return 'is-clarifying';
+  if (status === 'Підтверджена') return 'is-confirmed';
+  return 'is-closed';
+}
+
+function orderStatusControl(order: Order): string {
+  return `
+    <div class="order-status-control ${orderStatusClass(order.status)}" data-order-status-control>
+      <button class="order-status-control__trigger" type="button" data-order-status-trigger aria-haspopup="listbox" aria-expanded="false">
+        <span class="order-status-control__dot" aria-hidden="true"></span>
+        <span>${escapeHtml(order.status)}</span>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
+      </button>
+      <div class="order-status-control__menu" role="listbox" aria-label="Статус заявки ${escapeHtml(order.id)}" hidden>
+        ${ORDER_STATUSES.map(
+          (status) => `
+            <button class="${orderStatusClass(status)}" type="button" role="option" aria-selected="${status === order.status}" data-order-status-option="${escapeHtml(status)}" data-order-id="${escapeHtml(order.id)}">
+              <span class="order-status-control__dot" aria-hidden="true"></span>
+              <span>${escapeHtml(status)}</span>
+              ${status === order.status ? '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" /></svg>' : ''}
+            </button>
+          `,
+        ).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function dateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function dateFromKey(value: string): Date {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, Math.max(0, (month || 1) - 1), day || 1, 12);
+}
+
+function adminCalendarMarkup(open = false): string {
+  const today = new Date();
+  const todayKey = dateKey(today);
+  const cursorSource = adminCalendarCursor || adminOrderDate || todayKey;
+  const cursorValue = dateFromKey(cursorSource);
+  const cursor = new Date(cursorValue.getFullYear(), cursorValue.getMonth(), 1, 12);
+  adminCalendarCursor = dateKey(cursor);
+  const offsetFromMonday = (cursor.getDay() + 6) % 7;
+  const gridStart = new Date(cursor);
+  gridStart.setDate(cursor.getDate() - offsetFromMonday);
+  const days = Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(gridStart);
+    date.setDate(gridStart.getDate() + index);
+    const value = dateKey(date);
+    const outside = date.getMonth() !== cursor.getMonth();
+    const selected = value === adminOrderDate;
+    const isToday = value === todayKey;
+    const classes = [outside ? 'is-outside' : '', selected ? 'is-selected' : '', isToday ? 'is-today' : '']
+      .filter(Boolean)
+      .join(' ');
+    return `<button class="${classes}" type="button" data-calendar-date="${value}" aria-label="${date.toLocaleDateString('uk-UA', { day: 'numeric', month: 'long', year: 'numeric' })}"${selected ? ' aria-current="date"' : ''}>${date.getDate()}</button>`;
+  }).join('');
+  const selectedLabel = adminOrderDate ? dateFromKey(adminOrderDate).toLocaleDateString('uk-UA') : 'Усі дати';
+  const monthLabel = cursor.toLocaleDateString('uk-UA', { month: 'long', year: 'numeric' });
+  return `
+    <div class="admin-calendar${open ? ' is-open' : ''}" data-admin-calendar>
+      <button class="admin-calendar__trigger" type="button" data-calendar-trigger aria-haspopup="dialog" aria-expanded="${open}">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2v3m10-3v3M3 8h14M4 4h12a1 1 0 0 1 1 1v12H3V5a1 1 0 0 1 1-1Z" /></svg>
+        <span><small>Дата заявки</small><strong>${escapeHtml(selectedLabel)}</strong></span>
+        <svg class="admin-calendar__chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
+      </button>
+      <div class="admin-calendar__popover" role="dialog" aria-label="Оберіть дату заявки"${open ? '' : ' hidden'}>
+        <div class="admin-calendar__head">
+          <strong>${escapeHtml(monthLabel)}</strong>
+          <div>
+            <button type="button" data-calendar-month="-1" aria-label="Попередній місяць"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3-5 5 5 5" /></svg></button>
+            <button type="button" data-calendar-month="1" aria-label="Наступний місяць"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg></button>
+          </div>
+        </div>
+        <div class="admin-calendar__weekdays" aria-hidden="true">${['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд'].map((day) => `<span>${day}</span>`).join('')}</div>
+        <div class="admin-calendar__days">${days}</div>
+        <div class="admin-calendar__footer">
+          <button type="button" data-calendar-clear${adminOrderDate ? '' : ' disabled'}>Очистити</button>
+          <button type="button" data-calendar-today>Сьогодні</button>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function adminViewFromHash(): AdminView {
@@ -1852,7 +1951,7 @@ function adminOrderCard(order: Order): string {
     <article class="order-card" data-admin-order data-status="${escapeHtml(order.status)}" data-date="${order.createdAt.slice(0, 10)}" data-search="${escapeHtml(searchable)}">
       <div class="order-card__top">
         <div><span>${escapeHtml(order.id)}</span><strong>${escapeHtml(order.customerName)}</strong></div>
-        <select class="select status-select" data-order-status="${escapeHtml(order.id)}">${orderStatusOptions(order.status)}</select>
+        ${orderStatusControl(order)}
       </div>
       <div class="order-card__grid">
         <div><span>Контакт</span><a href="tel:${escapeHtml(order.phone)}">${escapeHtml(order.phone)}</a><small>Телефон клієнта</small></div>
@@ -1891,7 +1990,13 @@ function adminOrderCard(order: Order): string {
         <span>Нотатка менеджера</span>
         <textarea data-order-note="${escapeHtml(order.id)}" rows="2" placeholder="Домовленості після дзвінка, дата або деталі">${escapeHtml(order.managerNote ?? '')}</textarea>
       </label>
-      <time datetime="${order.createdAt}">${new Date(order.createdAt).toLocaleString('uk-UA')}</time>
+      <div class="order-card__footer">
+        <time datetime="${order.createdAt}">${new Date(order.createdAt).toLocaleString('uk-UA')}</time>
+        <button type="button" data-delete-order="${escapeHtml(order.id)}">
+          <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M3 5h12M7 2h4l1 3H6l1-3Zm-2 3 1 11h6l1-11M8 8v5m3-5v5" /></svg>
+          Видалити заявку
+        </button>
+      </div>
     </article>
   `;
 }
@@ -1942,13 +2047,9 @@ function adminOrdersPage(storedOrders: Order[]): string {
     </div>
     <div class="admin-toolbar">
       <label class="admin-search"><span class="sr-only">Пошук заявок</span><input id="admin-order-search" type="search" value="${escapeHtml(adminOrderSearch)}" placeholder="Номер, ім’я або телефон" /></label>
-      <label class="admin-date-filter"><span class="sr-only">Дата заявки</span><input id="admin-order-date" type="date" value="${escapeHtml(adminOrderDate)}" /></label>
+      ${adminCalendarMarkup()}
       <div class="admin-filter-chips" aria-label="Фільтр за статусом">
         ${statuses.map((status) => `<button class="${adminOrderStatus === status ? 'is-active' : ''}" type="button" data-admin-order-filter="${status}">${status}</button>`).join('')}
-      </div>
-      <div class="admin-toolbar__actions">
-        <button class="button button--ghost button--small" type="button" data-export-orders-csv>CSV</button>
-        <button class="button button--ghost button--small" type="button" data-export-orders>JSON</button>
       </div>
     </div>
     <div class="admin-results-meta"><strong id="admin-order-count">${storedOrders.length}</strong><span>заявок показано</span></div>
@@ -2089,6 +2190,48 @@ function filterAdminOrders(): void {
   });
   const count = document.querySelector<HTMLElement>('#admin-order-count');
   if (count) count.textContent = String(visible);
+}
+
+function closeOrderStatusMenus(except?: HTMLElement): void {
+  document.querySelectorAll<HTMLElement>('[data-order-status-control]').forEach((control) => {
+    if (control === except) return;
+    control.classList.remove('is-open');
+    control.querySelector<HTMLElement>('.order-status-control__menu')?.setAttribute('hidden', '');
+    control.querySelector<HTMLButtonElement>('[data-order-status-trigger]')?.setAttribute('aria-expanded', 'false');
+  });
+}
+
+function closeAdminCalendar(): void {
+  const control = document.querySelector<HTMLElement>('[data-admin-calendar]');
+  if (!control) return;
+  control.classList.remove('is-open');
+  control.querySelector<HTMLElement>('.admin-calendar__popover')?.setAttribute('hidden', '');
+  control.querySelector<HTMLButtonElement>('[data-calendar-trigger]')?.setAttribute('aria-expanded', 'false');
+}
+
+function replaceAdminCalendar(open: boolean, focusSelector?: string): void {
+  const control = document.querySelector<HTMLElement>('[data-admin-calendar]');
+  if (!control) return;
+  control.outerHTML = adminCalendarMarkup(open);
+  if (focusSelector) {
+    window.requestAnimationFrame(() =>
+      document.querySelector<HTMLElement>(`[data-admin-calendar] ${focusSelector}`)?.focus(),
+    );
+  }
+}
+
+function updateOrderStatus(orderId: string, nextStatus: OrderStatus): void {
+  const storedOrders = orders();
+  const order = storedOrders.find((item) => item.id === orderId);
+  if (!order || order.status === nextStatus) return;
+  const previousStatus = order.status;
+  order.status = nextStatus;
+  order.statusHistory = [
+    ...(order.statusHistory ?? [{ status: previousStatus, at: order.createdAt }]),
+    { status: nextStatus, at: new Date().toISOString() },
+  ];
+  writeStorage(STORAGE.orders, storedOrders);
+  renderAdmin();
 }
 
 function filterAdminClients(value: string): void {
@@ -2278,52 +2421,6 @@ function productsCsv(): string {
     ]
       .map(csvCell)
       .join(';'),
-  );
-  return `\uFEFF${[header.join(';'), ...rows].join('\r\n')}`;
-}
-
-function ordersCsv(): string {
-  const header = [
-    'orderId',
-    'createdAt',
-    'status',
-    'customerName',
-    'phone',
-    'company',
-    'productNumber',
-    'length',
-    'width',
-    'height',
-    'quantity',
-    'unitPrice',
-    'lineTotal',
-    'orderTotal',
-    'comment',
-    'managerNote',
-  ];
-  const rows = orders().flatMap((order) =>
-    order.items.map((item) =>
-      [
-        order.id,
-        order.createdAt,
-        order.status,
-        order.customerName,
-        order.phone,
-        order.company,
-        item.productNumber,
-        item.dimensions.length,
-        item.dimensions.width,
-        item.dimensions.height,
-        item.quantity,
-        item.unitPrice,
-        item.total,
-        order.total,
-        order.comment,
-        order.managerNote ?? '',
-      ]
-        .map(csvCell)
-        .join(';'),
-    ),
   );
   return `\uFEFF${[header.join(';'), ...rows].join('\r\n')}`;
 }
@@ -2735,6 +2832,74 @@ document.querySelector<HTMLFormElement>('#request-form')?.addEventListener('subm
 document.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
 
+  if (!target.closest('[data-order-status-control]')) closeOrderStatusMenus();
+  if (!target.closest('[data-admin-calendar]')) closeAdminCalendar();
+
+  const statusTrigger = target.closest<HTMLButtonElement>('[data-order-status-trigger]');
+  if (statusTrigger) {
+    const control = statusTrigger.closest<HTMLElement>('[data-order-status-control]');
+    const menu = control?.querySelector<HTMLElement>('.order-status-control__menu');
+    if (!control || !menu) return;
+    const willOpen = menu.hidden;
+    closeOrderStatusMenus(control);
+    menu.hidden = !willOpen;
+    control.classList.toggle('is-open', willOpen);
+    statusTrigger.setAttribute('aria-expanded', String(willOpen));
+    return;
+  }
+
+  const statusOption = target.closest<HTMLButtonElement>('[data-order-status-option]');
+  if (statusOption?.dataset.orderId && statusOption.dataset.orderStatusOption) {
+    updateOrderStatus(statusOption.dataset.orderId, statusOption.dataset.orderStatusOption as OrderStatus);
+    return;
+  }
+
+  const calendarTrigger = target.closest<HTMLButtonElement>('[data-calendar-trigger]');
+  if (calendarTrigger) {
+    const control = calendarTrigger.closest<HTMLElement>('[data-admin-calendar]');
+    const popover = control?.querySelector<HTMLElement>('.admin-calendar__popover');
+    if (!control || !popover) return;
+    const willOpen = popover.hidden;
+    closeOrderStatusMenus();
+    popover.hidden = !willOpen;
+    control.classList.toggle('is-open', willOpen);
+    calendarTrigger.setAttribute('aria-expanded', String(willOpen));
+    return;
+  }
+
+  const calendarMonth = target.closest<HTMLButtonElement>('[data-calendar-month]');
+  if (calendarMonth?.dataset.calendarMonth) {
+    const cursor = dateFromKey(adminCalendarCursor || dateKey(new Date()));
+    cursor.setMonth(cursor.getMonth() + Number(calendarMonth.dataset.calendarMonth), 1);
+    adminCalendarCursor = dateKey(cursor);
+    replaceAdminCalendar(true, `[data-calendar-month="${calendarMonth.dataset.calendarMonth}"]`);
+    return;
+  }
+
+  const calendarDate = target.closest<HTMLButtonElement>('[data-calendar-date]');
+  if (calendarDate?.dataset.calendarDate) {
+    adminOrderDate = calendarDate.dataset.calendarDate;
+    adminCalendarCursor = adminOrderDate;
+    replaceAdminCalendar(false);
+    filterAdminOrders();
+    return;
+  }
+
+  if (target.closest('[data-calendar-clear]')) {
+    adminOrderDate = '';
+    replaceAdminCalendar(false);
+    filterAdminOrders();
+    return;
+  }
+
+  if (target.closest('[data-calendar-today]')) {
+    adminOrderDate = dateKey(new Date());
+    adminCalendarCursor = adminOrderDate;
+    replaceAdminCalendar(false);
+    filterAdminOrders();
+    return;
+  }
+
   const savedMeasurementButton = target.closest<HTMLButtonElement>('[data-saved-measurement]');
   if (savedMeasurementButton?.dataset.savedMeasurement) {
     const measurement = savedMeasurements().find((item) => item.id === savedMeasurementButton.dataset.savedMeasurement);
@@ -2928,6 +3093,21 @@ document.addEventListener('click', (event) => {
     return;
   }
 
+  const deleteOrder = target.closest<HTMLButtonElement>('[data-delete-order]');
+  if (deleteOrder?.dataset.deleteOrder) {
+    const order = orders().find((item) => item.id === deleteOrder.dataset.deleteOrder);
+    if (!order) return;
+    if (window.confirm(`Видалити заявку ${order.id} від ${order.customerName}? Цю дію не можна скасувати.`)) {
+      writeStorage(
+        STORAGE.orders,
+        orders().filter((item) => item.id !== order.id),
+      );
+      adminNotice = `Заявку ${order.id} видалено.`;
+      renderAdmin();
+    }
+    return;
+  }
+
   const productFilter = target.closest<HTMLButtonElement>('[data-product-filter]');
   if (productFilter?.dataset.productFilter) {
     adminProductVisibility = productFilter.dataset.productFilter as ProductVisibility;
@@ -2942,16 +3122,6 @@ document.addEventListener('click', (event) => {
       button.classList.toggle('is-active', button === orderFilter);
     });
     filterAdminOrders();
-    return;
-  }
-
-  if (target.closest('[data-export-orders]')) {
-    downloadJson(`toffipacks-orders-${new Date().toISOString().slice(0, 10)}.json`, orders());
-    return;
-  }
-
-  if (target.closest('[data-export-orders-csv]')) {
-    downloadText(`toffipacks-orders-${new Date().toISOString().slice(0, 10)}.csv`, ordersCsv(), 'text/csv;charset=utf-8');
     return;
   }
 
@@ -2986,6 +3156,73 @@ document.addEventListener('click', (event) => {
   }
 });
 
+document.addEventListener('keydown', (event) => {
+  const target = event.target as HTMLElement;
+  const statusTrigger = target.closest<HTMLButtonElement>('[data-order-status-trigger]');
+  if (statusTrigger && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    event.preventDefault();
+    const control = statusTrigger.closest<HTMLElement>('[data-order-status-control]');
+    const menu = control?.querySelector<HTMLElement>('.order-status-control__menu');
+    if (menu?.hidden) statusTrigger.click();
+    const options = Array.from(control?.querySelectorAll<HTMLButtonElement>('[data-order-status-option]') ?? []);
+    const selected = Math.max(0, options.findIndex((option) => option.getAttribute('aria-selected') === 'true'));
+    options[event.key === 'ArrowUp' ? Math.max(0, selected - 1) : selected]?.focus();
+    return;
+  }
+
+  const statusOption = target.closest<HTMLButtonElement>('[data-order-status-option]');
+  if (statusOption) {
+    const control = statusOption.closest<HTMLElement>('[data-order-status-control]');
+    const options = Array.from(control?.querySelectorAll<HTMLButtonElement>('[data-order-status-option]') ?? []);
+    const current = options.indexOf(statusOption);
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeOrderStatusMenus();
+      control?.querySelector<HTMLButtonElement>('[data-order-status-trigger]')?.focus();
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    let next = current;
+    if (event.key === 'ArrowDown') next = (current + 1) % options.length;
+    if (event.key === 'ArrowUp') next = (current - 1 + options.length) % options.length;
+    if (event.key === 'Home') next = 0;
+    if (event.key === 'End') next = options.length - 1;
+    options[next]?.focus();
+    return;
+  }
+
+  const calendarControl = target.closest<HTMLElement>('[data-admin-calendar]');
+  if (calendarControl && event.key === 'Escape') {
+    event.preventDefault();
+    closeAdminCalendar();
+    calendarControl.querySelector<HTMLButtonElement>('[data-calendar-trigger]')?.focus();
+    return;
+  }
+
+  const calendarTrigger = target.closest<HTMLButtonElement>('[data-calendar-trigger]');
+  if (calendarTrigger && event.key === 'ArrowDown') {
+    event.preventDefault();
+    const popover = calendarControl?.querySelector<HTMLElement>('.admin-calendar__popover');
+    if (popover?.hidden) calendarTrigger.click();
+    const preferred =
+      calendarControl?.querySelector<HTMLButtonElement>('[data-calendar-date].is-selected') ??
+      calendarControl?.querySelector<HTMLButtonElement>('[data-calendar-date].is-today') ??
+      calendarControl?.querySelector<HTMLButtonElement>('[data-calendar-date]:not(.is-outside)');
+    preferred?.focus();
+    return;
+  }
+
+  const calendarDay = target.closest<HTMLButtonElement>('[data-calendar-date]');
+  if (calendarDay && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+    event.preventDefault();
+    const dayButtons = Array.from(calendarControl?.querySelectorAll<HTMLButtonElement>('[data-calendar-date]') ?? []);
+    const current = dayButtons.indexOf(calendarDay);
+    const offset = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : event.key === 'ArrowUp' ? -7 : 7;
+    dayButtons[current + offset]?.focus();
+  }
+});
+
 document.addEventListener('input', (event) => {
   const target = event.target;
   if (target instanceof HTMLInputElement && target.id === 'modal-quantity-input') {
@@ -2999,11 +3236,6 @@ document.addEventListener('input', (event) => {
   }
   if (target instanceof HTMLInputElement && target.id === 'admin-order-search') {
     adminOrderSearch = target.value;
-    filterAdminOrders();
-    return;
-  }
-  if (target instanceof HTMLInputElement && target.id === 'admin-order-date') {
-    adminOrderDate = target.value;
     filterAdminOrders();
     return;
   }
@@ -3070,22 +3302,6 @@ document.addEventListener('change', (event) => {
 
   if (target instanceof HTMLInputElement && target.dataset.cartQuantity) {
     updateCartQuantity(target.dataset.cartQuantity, Number(target.value));
-    return;
-  }
-
-  if (target instanceof HTMLSelectElement && target.dataset.orderStatus) {
-    const storedOrders = orders();
-    const order = storedOrders.find((item) => item.id === target.dataset.orderStatus);
-    if (order) {
-      const nextStatus = target.value as OrderStatus;
-      if (order.status !== nextStatus) {
-        const previousStatus = order.status;
-        order.status = nextStatus;
-        order.statusHistory = [...(order.statusHistory ?? [{ status: previousStatus, at: order.createdAt }]), { status: nextStatus, at: new Date().toISOString() }];
-      }
-      writeStorage(STORAGE.orders, storedOrders);
-      renderAdmin();
-    }
     return;
   }
 
