@@ -524,6 +524,8 @@ function boxDiagram(product: Product, compact = false): string {
 
 function productPickerOptions(): string {
   return visibleProducts()
+    .slice()
+    .sort((first, second) => first.number.localeCompare(second.number, 'uk-UA', { numeric: true }))
     .map(
       (product) =>
         `<button class="product-picker__option" type="button" role="option" data-product-picker-value="${escapeHtml(product.id)}" aria-selected="${product.id === selectedProductId}">
@@ -1622,7 +1624,11 @@ function accountPageContent(): string {
       .toLocaleUpperCase('uk-UA');
     const product = selectedProduct();
     const personalPrice = unitPrice(product, selectedQuantity, account);
-    const personalPriceCount = visibleProducts().filter((item) => personalUnitPrice(item, account) !== null).length;
+    const personalPriceProducts = visibleProducts().flatMap((item) => {
+      const price = personalUnitPrice(item, account);
+      return price === null ? [] : [{ product: item, price }];
+    });
+    const personalPriceCount = personalPriceProducts.length;
     const hasPersonalPrices = personalPriceCount > 0;
     return `
       <div class="account-dashboard">
@@ -1651,6 +1657,34 @@ function accountPageContent(): string {
           <article><span>Активні</span><strong>${activeOrders}</strong><small>потребують уваги</small></article>
           <article><span>Сума заявок</span><strong>${formatMoney(orderTotal)}</strong><small>загальна вартість</small></article>
         </div>
+
+        <section class="account-personal-prices${hasPersonalPrices ? ' is-active' : ''}">
+          <div class="account-personal-prices__head">
+            <div>
+              <p class="eyebrow"><span></span> Ваш персональний прайс</p>
+              <h2>${hasPersonalPrices ? 'Ціни, доступні тільки вам.' : 'Персональні ціни ще не налаштовані.'}</h2>
+            </div>
+            <p>${hasPersonalPrices ? 'Менеджер задає кінцеву ціну окремо для кожного розміру. Вона автоматично використовується в усіх розрахунках після входу.' : 'Після узгодження менеджер додасть індивідуальні ціни для потрібних коробок.'}</p>
+          </div>
+          ${
+            hasPersonalPrices
+              ? `<div class="account-personal-prices__grid">
+                  ${personalPriceProducts
+                    .map(
+                      ({ product: priceProduct, price }, index) => `
+                        <button type="button" data-account-price-product="${escapeHtml(priceProduct.id)}">
+                          <span class="account-personal-prices__index">${String(index + 1).padStart(2, '0')}</span>
+                          <span class="account-personal-prices__product"><strong>№${escapeHtml(priceProduct.number)}</strong><small>${dimensionText(priceProduct.dimensions)}</small></span>
+                          <span class="account-personal-prices__value"><strong>${formatMoney(price)}</strong><small>за 1 шт.</small></span>
+                          <i aria-hidden="true">→</i>
+                        </button>
+                      `,
+                    )
+                    .join('')}
+                </div>`
+              : '<a class="button button--ghost" href="#catalog">Переглянути звичайні ціни</a>'
+          }
+        </section>
 
         <div class="account-dashboard__grid">
           <section class="account-orders-panel">
@@ -1696,7 +1730,7 @@ function accountPageContent(): string {
               <div class="account-quick-order__box">${boxDiagram(product, false)}</div>
               <span>Коробка №${escapeHtml(product.number)}</span>
               <h3>${dimensionText(product.dimensions)}</h3>
-              <div><span>${selectedQuantity.toLocaleString('uk-UA')} шт.</span><strong>${formatMoney(personalPrice * selectedQuantity)}</strong></div>
+              <div><span>${selectedQuantity.toLocaleString('uk-UA')} шт. · ${personalUnitPrice(product, account) !== null ? 'ваша ціна' : 'ціна на сайті'}</span><strong>${formatMoney(personalPrice * selectedQuantity)}</strong></div>
               <button class="button button--gold button--wide" type="button" data-add-selected-to-cart>Додати до кошика</button>
             </article>
             <article class="account-profile-card">
@@ -1728,7 +1762,7 @@ function accountPageContent(): string {
       <div class="auth-intro">
         <p class="eyebrow"><span></span> Кабінет ToffiPacks</p>
         <h1 id="account-page-title">Увійдіть за номером телефону.</h1>
-        <p>Постійним клієнтам менеджер може активувати фіксовану ціну нижче публічної оптової.</p>
+        <p>Постійним клієнтам менеджер може налаштувати окрему персональну ціну для кожної коробки.</p>
       </div>
       <div class="auth-forms">
         <div class="auth-tabs" role="tablist">
@@ -3519,6 +3553,18 @@ document.addEventListener('click', (event) => {
     return;
   }
 
+  const accountPriceProduct = target.closest<HTMLButtonElement>('[data-account-price-product]');
+  if (accountPriceProduct?.dataset.accountPriceProduct) {
+    const product = visibleProducts().find((item) => item.id === accountPriceProduct.dataset.accountPriceProduct);
+    if (product) {
+      selectedProductId = product.id;
+      renderCalculator();
+      renderCatalog(false);
+      window.location.hash = 'calculator';
+    }
+    return;
+  }
+
   const clientPricesToggle = target.closest<HTMLButtonElement>('[data-client-prices-toggle]');
   if (clientPricesToggle?.dataset.clientPricesToggle) {
     const clientId = clientPricesToggle.dataset.clientPricesToggle;
@@ -4027,6 +4073,39 @@ async function hydrateFromBackend(): Promise<void> {
     }
   }
 }
+
+function refreshClientPriceSurfaces(): void {
+  renderAccountButton();
+  renderCatalog(false);
+  renderCalculator();
+  renderAccountPage();
+}
+
+async function refreshSignedInClientPrices(): Promise<void> {
+  if (!backendEnabled || !hasApiSession() || currentAccount()?.role !== 'client') return;
+  try {
+    cacheAccount(await backendApi.me());
+    refreshClientPriceSurfaces();
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 401) {
+      clearApiSession();
+      localStorage.removeItem(STORAGE.session);
+      refreshClientPriceSurfaces();
+    }
+  }
+}
+
+window.addEventListener('storage', (event) => {
+  if (event.key === STORAGE.accounts && currentAccount()?.role === 'client') refreshClientPriceSurfaces();
+});
+
+window.addEventListener('focus', () => {
+  void refreshSignedInClientPrices();
+});
+
+window.setInterval(() => {
+  if (document.visibilityState === 'visible') void refreshSignedInClientPrices();
+}, 20_000);
 
 renderCatalog(true);
 window.setTimeout(() => renderCatalog(false), 460);
