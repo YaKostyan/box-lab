@@ -1153,9 +1153,36 @@ function openProductDialog(productId: string): void {
   activeProductDialogId = product.id;
   selectProduct(product.id);
   content.innerHTML = productDialogContent(product);
+  dialog.classList.remove('is-closing');
   if (typeof dialog.showModal === 'function') dialog.showModal();
   else dialog.setAttribute('open', '');
   updateProductDialog();
+}
+
+function closeProductDialog(afterClose?: () => void): void {
+  const dialog = document.querySelector<HTMLDialogElement>('#product-dialog');
+  if (!dialog) {
+    activeProductDialogId = null;
+    afterClose?.();
+    return;
+  }
+
+  const finishClosing = (): void => {
+    dialog.classList.remove('is-closing');
+    if (dialog.open && typeof dialog.close === 'function') dialog.close();
+    else dialog.removeAttribute('open');
+    activeProductDialogId = null;
+    afterClose?.();
+  };
+
+  if (!dialog.open || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    finishClosing();
+    return;
+  }
+
+  if (dialog.classList.contains('is-closing')) return;
+  dialog.classList.add('is-closing');
+  window.setTimeout(finishClosing, 230);
 }
 
 function filteredProducts(): Product[] {
@@ -3223,8 +3250,7 @@ document.addEventListener('click', (event) => {
 
   if (target.closest('[data-product-to-cart]')) {
     addToCart(activeProductDialogId ?? selectedProductId, selectedQuantity);
-    document.querySelector<HTMLDialogElement>('#product-dialog')?.close();
-    activeProductDialogId = null;
+    closeProductDialog();
     return;
   }
 
@@ -3271,17 +3297,16 @@ document.addEventListener('click', (event) => {
   }
 
   if (target.closest('[data-product-to-calculator]')) {
-    document.querySelector<HTMLDialogElement>('#product-dialog')?.close();
-    activeProductDialogId = null;
-    window.location.hash = 'calculator';
-    document.querySelector('#calculator')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    closeProductDialog(() => {
+      window.location.hash = 'calculator';
+      document.querySelector('#calculator')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
     return;
   }
 
   const closeButton = target.closest<HTMLElement>('[data-close-dialog]');
   if (closeButton) {
-    closeButton.closest<HTMLDialogElement>('dialog')?.close();
-    activeProductDialogId = null;
+    closeProductDialog();
     return;
   }
 
@@ -3696,9 +3721,13 @@ document.addEventListener('change', (event) => {
 
 document.querySelector<HTMLDialogElement>('#product-dialog')?.addEventListener('click', (event) => {
   if (event.target === event.currentTarget) {
-    (event.currentTarget as HTMLDialogElement).close();
-    activeProductDialogId = null;
+    closeProductDialog();
   }
+});
+
+document.querySelector<HTMLDialogElement>('#product-dialog')?.addEventListener('cancel', (event) => {
+  event.preventDefault();
+  closeProductDialog();
 });
 
 document.querySelector<HTMLDialogElement>('#admin-product-dialog')?.addEventListener('click', (event) => {

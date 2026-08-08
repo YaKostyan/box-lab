@@ -2923,6 +2923,23 @@ svg {
   backdrop-filter: blur(4px);
 }
 
+.product-dialog[open] {
+  animation: productDialogIn 300ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.product-dialog[open]::backdrop {
+  animation: productBackdropIn 260ms ease-out both;
+}
+
+.product-dialog.is-closing {
+  pointer-events: none;
+  animation: productDialogOut 220ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+.product-dialog.is-closing::backdrop {
+  animation: productBackdropOut 220ms ease-in both;
+}
+
 .product-modal {
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(420px, 0.92fr);
@@ -5546,6 +5563,54 @@ svg {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes productDialogIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.975);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes productDialogOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(12px) scale(0.982);
+  }
+}
+
+@keyframes productBackdropIn {
+  from {
+    background: rgba(13, 29, 21, 0);
+    backdrop-filter: blur(0);
+  }
+
+  to {
+    background: rgba(13, 29, 21, 0.74);
+    backdrop-filter: blur(4px);
+  }
+}
+
+@keyframes productBackdropOut {
+  from {
+    background: rgba(13, 29, 21, 0.74);
+    backdrop-filter: blur(4px);
+  }
+
+  to {
+    background: rgba(13, 29, 21, 0);
+    backdrop-filter: blur(0);
   }
 }
 
