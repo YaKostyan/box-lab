@@ -4,10 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const distRoot = join(projectRoot, 'dist');
-const outputPaths = [
-  join(projectRoot, 'TOFFIPACKS-OPEN-ME.html'),
-  join(projectRoot, 'BOX-LAB-OPEN-ME.html'),
-];
+const outputPaths = [join(projectRoot, 'TOFFIPACKS-OPEN-ME.html')];
 
 let html = await readFile(join(distRoot, 'index.html'), 'utf8');
 const stylesheetTag = html.match(/<link rel="stylesheet"[^>]*href="([^"]+)"[^>]*>/);

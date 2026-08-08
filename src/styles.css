@@ -616,6 +616,7 @@ svg {
 
 .logo-stage {
   position: relative;
+  isolation: isolate;
   height: 100%;
   min-height: 620px;
   overflow: hidden;
@@ -636,7 +637,7 @@ svg {
 
 .logo-stage__orbit {
   position: absolute;
-  z-index: 2;
+  z-index: 1;
   top: 5%;
   left: 7%;
   width: 86%;
@@ -660,7 +661,7 @@ svg {
 
 .logo-stage__image {
   position: absolute;
-  z-index: 1;
+  z-index: 2;
   top: 9%;
   left: 50%;
   width: min(78%, 520px);
@@ -6448,9 +6449,9 @@ svg {
   }
 
   .logo-stage__orbit {
-    top: calc(7% - 8px);
-    left: calc(8% - 8px);
-    width: calc(84% + 16px);
+    top: calc(7% - 14px);
+    left: calc(8% - 14px);
+    width: calc(84% + 28px);
   }
 
   .logo-stage__orbit::after {
