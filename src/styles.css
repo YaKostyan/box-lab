@@ -6316,20 +6316,18 @@ svg {
   height: 46px;
   display: grid;
   place-items: center;
-  color: var(--brown-deep);
-  background: var(--gold);
+  overflow: hidden;
+  background: #f5ecdc;
   border: 1px solid #dcb675;
   border-radius: 14px;
 }
 
-.support-agent__mark svg {
-  width: 27px;
-  height: 27px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.55;
+.support-agent__mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 33%;
+  transform: scale(1.72);
 }
 
 .support-panel__head > div:nth-child(2) {
@@ -6419,67 +6417,20 @@ svg {
   position: relative;
   width: 112px;
   height: 112px;
-  display: grid;
-  place-items: center;
-  color: var(--brown-deep);
-  background: rgba(255, 255, 255, 0.72);
+  overflow: hidden;
+  background: #f5ecdc;
   border: 1px solid rgba(113, 70, 43, 0.2);
   border-radius: 50%;
-  box-shadow: inset 0 0 0 8px rgba(198, 154, 88, 0.08);
+  box-shadow:
+    0 12px 28px rgba(30, 56, 46, 0.13),
+    inset 0 0 0 5px rgba(198, 154, 88, 0.1);
 }
 
-.support-welcome__orbit::after {
-  position: absolute;
-  top: -5px;
-  left: 50%;
-  width: 9px;
-  height: 9px;
-  content: '';
-  background: var(--gold);
-  border: 2px solid #f4f1e8;
-  border-radius: 50%;
-  transform: translateX(-50%);
-}
-
-.support-welcome__orbit {
-  position: absolute;
-  inset: 8px;
-  border: 1px dashed rgba(113, 70, 43, 0.3);
-  border-radius: 50%;
-  animation: orbit 18s linear infinite;
-}
-
-.support-welcome__visual svg {
-  position: relative;
-  z-index: 1;
-  width: 82px;
-  overflow: visible;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.7;
-  filter: drop-shadow(0 7px 9px rgba(63, 41, 31, 0.12));
-  animation: supportPackageFloat 3.2s ease-in-out infinite;
-}
-
-.support-package__top {
-  fill: #d5b57d;
-  transform-box: fill-box;
-  transform-origin: 50% 100%;
-  animation: supportPackageFold 3.2s ease-in-out infinite;
-}
-
-.support-package__front {
-  fill: #fffdf8;
-}
-
-.support-package__side {
-  fill: #ead8b7;
-}
-
-.support-package__fold {
-  stroke: rgba(63, 41, 31, 0.66);
+.support-welcome__visual img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  animation: supportPortraitFloat 3.8s ease-in-out infinite;
 }
 
 .support-welcome__copy {
@@ -6912,25 +6863,14 @@ svg {
   }
 }
 
-@keyframes supportPackageFloat {
+@keyframes supportPortraitFloat {
   0%,
   100% {
-    transform: translateY(1px);
+    transform: scale(1.04) translateY(0);
   }
 
   50% {
-    transform: translateY(-3px);
-  }
-}
-
-@keyframes supportPackageFold {
-  0%,
-  100% {
-    transform: perspective(160px) rotateX(0deg);
-  }
-
-  50% {
-    transform: perspective(160px) rotateX(-9deg);
+    transform: scale(1.065) translateY(-1px);
   }
 }
 
@@ -8765,10 +8705,6 @@ svg {
   .support-welcome__visual {
     width: 82px;
     height: 82px;
-  }
-
-  .support-welcome__visual svg {
-    width: 62px;
   }
 
   .support-welcome__copy strong {
