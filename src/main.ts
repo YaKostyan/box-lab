@@ -569,8 +569,12 @@ function supportWidgetMarkup(): string {
       <div class="support-panel" id="support-panel" role="dialog" aria-modal="false" aria-labelledby="support-title" hidden>
         <header class="support-panel__head">
           <div class="support-agent" aria-hidden="true">
-            <span class="support-agent__mark"><img src="./toffipacks-logo.webp" alt="" /></span>
-            <i></i>
+            <span class="support-agent__mark">
+              <svg viewBox="0 0 32 32">
+                <path d="m5.5 10.5 10.5-6 10.5 6v11L16 27.5l-10.5-6v-11Z" />
+                <path d="m5.5 10.5 10.5 6 10.5-6M16 16.5v11M10.8 7.5l10.4 6" />
+              </svg>
+            </span>
           </div>
           <div>
             <strong id="support-title">Помічник ToffiPacks</strong>
