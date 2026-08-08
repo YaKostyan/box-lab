@@ -6326,8 +6326,8 @@ svg {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 50% 36%;
-  transform: scale(1.35);
+  object-position: 50% 33%;
+  transform: scale(1.72);
 }
 
 .support-panel__head > div:nth-child(2) {
@@ -6866,11 +6866,11 @@ svg {
 @keyframes supportPortraitFloat {
   0%,
   100% {
-    transform: scale(1) translateY(0);
+    transform: scale(1.04) translateY(0);
   }
 
   50% {
-    transform: scale(1.018) translateY(-1px);
+    transform: scale(1.065) translateY(-1px);
   }
 }
 
