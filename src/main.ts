@@ -501,13 +501,40 @@ function boxDiagram(product: Product, compact = false): string {
   `;
 }
 
-function productOptions(): string {
+function productPickerOptions(): string {
   return visibleProducts()
     .map(
       (product) =>
-        `<option value="${escapeHtml(product.id)}"${product.id === selectedProductId ? ' selected' : ''}>№${escapeHtml(product.number)} · ${dimensionText(product.dimensions)}</option>`,
+        `<button class="product-picker__option" type="button" role="option" data-product-picker-value="${escapeHtml(product.id)}" aria-selected="${product.id === selectedProductId}">
+          <span class="product-picker__number">№${escapeHtml(product.number)}</span>
+          <span class="product-picker__dimensions">${dimensionText(product.dimensions)}</span>
+          <i aria-hidden="true"></i>
+        </button>`,
     )
     .join('');
+}
+
+function productPicker(id: string, large = false): string {
+  const product = selectedProduct();
+  return `
+    <div class="product-picker${large ? ' product-picker--large' : ''}" id="${id}" data-product-picker data-value="${escapeHtml(product.id)}">
+      <button
+        class="product-picker__trigger"
+        type="button"
+        data-product-picker-trigger
+        aria-haspopup="listbox"
+        aria-expanded="false"
+        aria-controls="${id}-menu"
+        aria-labelledby="${id}-label ${id}-value"
+      >
+        <span class="product-picker__value" id="${id}-value"><b>№${escapeHtml(product.number)}</b><span>${dimensionText(product.dimensions)}</span></span>
+        <i class="product-picker__chevron" aria-hidden="true"></i>
+      </button>
+      <div class="product-picker__menu" id="${id}-menu" role="listbox" aria-labelledby="${id}-label" hidden>
+        ${productPickerOptions()}
+      </div>
+    </div>
+  `;
 }
 
 function storefrontTemplate(): string {
@@ -574,10 +601,10 @@ function storefrontTemplate(): string {
             <span class="technical-label">Швидкий розрахунок</span>
             <span class="price-rule">Кінцева ціна за весь тираж</span>
           </div>
-          <label class="field">
-            <span>Коробка</span>
-            <select class="select" id="hero-product-select">${productOptions()}</select>
-          </label>
+          <div class="field">
+            <span id="hero-product-picker-label">Коробка</span>
+            ${productPicker('hero-product-picker')}
+          </div>
           <label class="field">
             <span>Кількість</span>
             <input class="input" id="hero-quantity-input" type="number" min="1" max="${MAX_QUANTITY}" value="${selectedQuantity}" />
@@ -715,10 +742,10 @@ function storefrontTemplate(): string {
               <span class="technical-label">Розрахунок</span>
               <span class="account-price-badge" id="account-price-badge">Публічна ціна</span>
             </div>
-            <label class="field">
-              <span>Розмір коробки</span>
-              <select class="select select--large" id="calculator-product-select">${productOptions()}</select>
-            </label>
+            <div class="field">
+              <span id="calculator-product-picker-label">Розмір коробки</span>
+              ${productPicker('calculator-product-picker', true)}
+            </div>
             <div class="calculator-preview" id="calculator-preview">${boxDiagram(product, true)}</div>
             <div class="quantity-block">
               <div class="quantity-block__label">
@@ -1271,6 +1298,60 @@ function queueCatalogRender(): void {
   catalogTimer = window.setTimeout(() => renderCatalog(false), 320);
 }
 
+function syncProductPickers(rebuildOptions = false): void {
+  const product = selectedProduct();
+  document.querySelectorAll<HTMLElement>('[data-product-picker]').forEach((picker) => {
+    picker.dataset.value = product.id;
+    const number = picker.querySelector<HTMLElement>('.product-picker__value b');
+    const dimensions = picker.querySelector<HTMLElement>('.product-picker__value span');
+    if (number) number.textContent = `№${product.number}`;
+    if (dimensions) dimensions.textContent = dimensionText(product.dimensions);
+
+    const menu = picker.querySelector<HTMLElement>('.product-picker__menu');
+    if (menu && rebuildOptions) menu.innerHTML = productPickerOptions();
+    picker.querySelectorAll<HTMLButtonElement>('[data-product-picker-value]').forEach((option) => {
+      option.setAttribute('aria-selected', String(option.dataset.productPickerValue === product.id));
+    });
+  });
+}
+
+function closeProductPicker(picker: HTMLElement, restoreFocus = false): void {
+  const trigger = picker.querySelector<HTMLButtonElement>('[data-product-picker-trigger]');
+  const menu = picker.querySelector<HTMLElement>('.product-picker__menu');
+  picker.classList.remove('is-open');
+  trigger?.setAttribute('aria-expanded', 'false');
+  window.setTimeout(() => {
+    if (menu && !picker.classList.contains('is-open')) menu.hidden = true;
+  }, 190);
+  if (restoreFocus) trigger?.focus();
+}
+
+function closeProductPickers(except?: HTMLElement): void {
+  document.querySelectorAll<HTMLElement>('[data-product-picker].is-open').forEach((picker) => {
+    if (picker !== except) closeProductPicker(picker);
+  });
+}
+
+function openProductPicker(picker: HTMLElement, focusSelected = false): void {
+  closeProductPickers(picker);
+  const trigger = picker.querySelector<HTMLButtonElement>('[data-product-picker-trigger]');
+  const menu = picker.querySelector<HTMLElement>('.product-picker__menu');
+  if (!trigger || !menu) return;
+  menu.hidden = false;
+  trigger.setAttribute('aria-expanded', 'true');
+  window.requestAnimationFrame(() => {
+    picker.classList.add('is-open');
+    const selected = picker.querySelector<HTMLButtonElement>('[data-product-picker-value][aria-selected="true"]');
+    selected?.scrollIntoView({ block: 'nearest' });
+    if (focusSelected) selected?.focus();
+  });
+}
+
+function toggleProductPicker(picker: HTMLElement): void {
+  if (picker.classList.contains('is-open')) closeProductPicker(picker);
+  else openProductPicker(picker);
+}
+
 function renderCalculator(): void {
   const product = selectedProduct();
   const account = currentAccount();
@@ -1278,9 +1359,7 @@ function renderCalculator(): void {
   const total = calculatedUnit * selectedQuantity;
   const tier = priceTypeLabel(selectedQuantity, account);
 
-  document.querySelectorAll<HTMLSelectElement>('#calculator-product-select, #hero-product-select').forEach((select) => {
-    select.value = product.id;
-  });
+  syncProductPickers();
   document.querySelectorAll<HTMLInputElement>('#quantity-input, #hero-quantity-input, #modal-quantity-input').forEach((input) => {
     input.value = String(selectedQuantity);
   });
@@ -2487,11 +2566,7 @@ function refreshProductSurfaces(): void {
   const available = visibleProducts();
   if (!available.length) return;
   if (!available.some((product) => product.id === selectedProductId)) selectedProductId = available[0].id;
-  const options = productOptions();
-  document.querySelectorAll<HTMLSelectElement>('#calculator-product-select, #hero-product-select').forEach((select) => {
-    select.innerHTML = options;
-    select.value = selectedProductId;
-  });
+  syncProductPickers(true);
   const heroCount = document.querySelector<HTMLElement>('#hero-product-count');
   if (heroCount) heroCount.textContent = String(available.length);
   const catalogLabel = document.querySelector<HTMLElement>('#catalog-ready-label');
@@ -3112,14 +3187,6 @@ document.querySelector<HTMLButtonElement>('#catalog-more-button')?.addEventListe
 
 window.addEventListener('resize', () => renderCatalog(false));
 
-document.querySelector<HTMLSelectElement>('#calculator-product-select')?.addEventListener('change', (event) => {
-  selectProduct((event.currentTarget as HTMLSelectElement).value);
-});
-
-document.querySelector<HTMLSelectElement>('#hero-product-select')?.addEventListener('change', (event) => {
-  selectProduct((event.currentTarget as HTMLSelectElement).value);
-});
-
 document.querySelector<HTMLInputElement>('#quantity-input')?.addEventListener('input', (event) => {
   setQuantity(Number((event.currentTarget as HTMLInputElement).value));
 });
@@ -3135,6 +3202,23 @@ document.querySelector<HTMLFormElement>('#request-form')?.addEventListener('subm
 
 document.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
+
+  const productPickerOption = target.closest<HTMLButtonElement>('[data-product-picker-value]');
+  if (productPickerOption?.dataset.productPickerValue) {
+    const picker = productPickerOption.closest<HTMLElement>('[data-product-picker]');
+    if (picker) closeProductPicker(picker, true);
+    selectProduct(productPickerOption.dataset.productPickerValue);
+    return;
+  }
+
+  const productPickerTrigger = target.closest<HTMLButtonElement>('[data-product-picker-trigger]');
+  if (productPickerTrigger) {
+    const picker = productPickerTrigger.closest<HTMLElement>('[data-product-picker]');
+    if (picker) toggleProductPicker(picker);
+    return;
+  }
+
+  if (!target.closest('[data-product-picker]')) closeProductPickers();
 
   if (!target.closest('[data-order-status-control]')) closeOrderStatusMenus();
   if (!target.closest('[data-admin-calendar]')) closeAdminCalendar();
@@ -3522,6 +3606,48 @@ document.addEventListener('click', (event) => {
 
 document.addEventListener('keydown', (event) => {
   const target = event.target as HTMLElement;
+
+  const productPickerTrigger = target.closest<HTMLButtonElement>('[data-product-picker-trigger]');
+  if (productPickerTrigger) {
+    const picker = productPickerTrigger.closest<HTMLElement>('[data-product-picker]');
+    if (picker && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+      event.preventDefault();
+      openProductPicker(picker, true);
+      return;
+    }
+    if (picker && event.key === 'Escape' && picker.classList.contains('is-open')) {
+      event.preventDefault();
+      closeProductPicker(picker, true);
+      return;
+    }
+  }
+
+  const productPickerOption = target.closest<HTMLButtonElement>('[data-product-picker-value]');
+  if (productPickerOption) {
+    const picker = productPickerOption.closest<HTMLElement>('[data-product-picker]');
+    const options = Array.from(picker?.querySelectorAll<HTMLButtonElement>('[data-product-picker-value]') ?? []);
+    const current = options.indexOf(productPickerOption);
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      if (picker) closeProductPicker(picker, true);
+      return;
+    }
+    if (event.key === 'Tab') {
+      if (picker) closeProductPicker(picker);
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) || !options.length) return;
+    event.preventDefault();
+    let next = current;
+    if (event.key === 'ArrowDown') next = (current + 1) % options.length;
+    if (event.key === 'ArrowUp') next = (current - 1 + options.length) % options.length;
+    if (event.key === 'Home') next = 0;
+    if (event.key === 'End') next = options.length - 1;
+    options[next]?.focus();
+    options[next]?.scrollIntoView({ block: 'nearest' });
+    return;
+  }
+
   const statusTrigger = target.closest<HTMLButtonElement>('[data-order-status-trigger]');
   if (statusTrigger && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
     event.preventDefault();
