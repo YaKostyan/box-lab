@@ -567,12 +567,18 @@ function supportWelcomeMarkup(): string {
   return `
     <div class="support-welcome">
       <div class="support-welcome__visual" aria-hidden="true">
-        <img src="./toffik-support-v5.webp" alt="" />
+        <span class="support-welcome__orbit"></span>
+        <svg viewBox="0 0 100 82">
+          <path class="support-package__top" d="m18 31 26-16h38L56 31H18Z" />
+          <path class="support-package__front" d="M18 31h38v32H18V31Z" />
+          <path class="support-package__side" d="m56 31 26-16v32L56 63V31Z" />
+          <path class="support-package__fold" d="m18 31 19 10 19-10M44 15l19 10" />
+        </svg>
       </div>
       <div class="support-welcome__copy">
         <span>Швидка підтримка</span>
         <strong>З чим допомогти?</strong>
-        <p>Оберіть тему — Тофік підкаже.</p>
+        <p>Оберіть тему — відповідь з’явиться одразу.</p>
       </div>
     </div>
   `;
@@ -585,12 +591,15 @@ function supportWidgetMarkup(): string {
         <header class="support-panel__head">
           <div class="support-agent" aria-hidden="true">
             <span class="support-agent__mark">
-              <img src="./toffik-support-v5.webp" alt="" />
+              <svg viewBox="0 0 32 32">
+                <path d="m5.5 10.5 10.5-6 10.5 6v11L16 27.5l-10.5-6v-11Z" />
+                <path d="m5.5 10.5 10.5 6 10.5-6M16 16.5v11M10.8 7.5l10.4 6" />
+              </svg>
             </span>
           </div>
           <div>
             <strong id="support-title">Помічник ToffiPacks</strong>
-            <span><i aria-hidden="true"></i> Тофік на зв’язку</span>
+            <span><i aria-hidden="true"></i> Відповідає одразу</span>
           </div>
           <button class="support-panel__close" type="button" data-support-close aria-label="Закрити підтримку">×</button>
         </header>
@@ -1181,7 +1190,7 @@ function answerSupportQuestion(topicId: string): void {
   conversation.innerHTML = `
     <div class="support-answer-stage">
       <div class="support-answer-question"><span>${escapeHtml(topic.question)}</span></div>
-      <div class="support-message support-message--bot support-message--typing" aria-label="Тофік готує відповідь">
+      <div class="support-message support-message--bot support-message--typing" aria-label="Помічник готує відповідь">
         <i></i><i></i><i></i>
       </div>
     </div>
@@ -1193,7 +1202,7 @@ function answerSupportQuestion(topicId: string): void {
       <div class="support-answer-stage">
         <div class="support-answer-question"><span>${escapeHtml(topic.question)}</span></div>
         <div class="support-answer-card">
-          <span class="support-answer-card__label"><i aria-hidden="true"></i> Тофік підказує</span>
+          <span class="support-answer-card__label"><i aria-hidden="true"></i> Відповідь помічника</span>
           <p>${escapeHtml(topic.answer)}</p>
           <a href="${escapeHtml(topic.actionHref)}" data-support-action>${escapeHtml(topic.actionLabel)} <i aria-hidden="true">→</i></a>
         </div>
