@@ -567,7 +567,7 @@ function supportWelcomeMarkup(): string {
   return `
     <div class="support-welcome">
       <div class="support-welcome__visual" aria-hidden="true">
-        <img src="./toffik-support-v3.webp" alt="" />
+        <img src="./toffik-support-v5.webp" alt="" />
       </div>
       <div class="support-welcome__copy">
         <span>Швидка підтримка</span>
@@ -585,7 +585,7 @@ function supportWidgetMarkup(): string {
         <header class="support-panel__head">
           <div class="support-agent" aria-hidden="true">
             <span class="support-agent__mark">
-              <img src="./toffik-support-v3.webp" alt="" />
+              <img src="./toffik-support-v5.webp" alt="" />
             </span>
           </div>
           <div>
