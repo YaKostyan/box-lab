@@ -1,4 +1,5 @@
 import './styles.css';
+import { ApiRequestError, backendApi, backendEnabled, clearApiSession, hasApiSession, type ApiAccount, type ApiOrder, type ApiProduct } from './api';
 import {
   analyzeFit,
   DEFAULT_PARTNER_MARKUP,
@@ -30,11 +31,12 @@ interface Account {
   name: string;
   phone: string;
   company: string;
-  password: string;
+  password?: string;
   role: AccountRole;
   partner: boolean;
   fixedMarkup: number;
   createdAt: string;
+  updatedAt?: string;
 }
 
 interface Order {
@@ -153,6 +155,12 @@ function initializeStorage(): void {
 
 initializeStorage();
 
+if (backendEnabled) {
+  writeStorage(STORAGE.accounts, []);
+  writeStorage(STORAGE.orders, []);
+  if (!hasApiSession()) localStorage.removeItem(STORAGE.session);
+}
+
 const restoredFit = readStorage<FitState | null>(STORAGE.fit, null);
 const restoredDimensions = restoredFit?.dimensions;
 const hasRestoredDimensions =
@@ -264,6 +272,49 @@ function cartItems(): CartItem[] {
 function currentAccount(): Account | null {
   const accountId = localStorage.getItem(STORAGE.session);
   return accounts().find((account) => account.id === accountId) ?? null;
+}
+
+function cacheAccount(account: ApiAccount): Account {
+  const cached: Account = { ...account };
+  const stored = accounts().filter((item) => item.id !== account.id && item.role !== account.role);
+  writeStorage(STORAGE.accounts, [cached, ...stored]);
+  localStorage.setItem(STORAGE.session, cached.id);
+  return cached;
+}
+
+function cacheAdminData(admin: ApiAccount, clients: ApiAccount[], serverOrders: ApiOrder[], products: ApiProduct[]): void {
+  writeStorage(STORAGE.accounts, [admin, ...clients] satisfies Account[]);
+  writeStorage(STORAGE.orders, serverOrders satisfies Order[]);
+  saveCatalog(products satisfies ManagedProduct[]);
+  localStorage.setItem(STORAGE.session, admin.id);
+}
+
+async function refreshBackendSession(): Promise<Account | null> {
+  if (!backendEnabled || !hasApiSession()) return null;
+  try {
+    const account = await backendApi.me();
+    if (account.role === 'admin') {
+      const [clients, serverOrders, products] = await Promise.all([
+        backendApi.adminClients(),
+        backendApi.adminOrders(),
+        backendApi.adminProducts(),
+      ]);
+      cacheAdminData(account, clients, serverOrders, products);
+    } else {
+      const [serverOrders, products] = await Promise.all([backendApi.myOrders(), backendApi.products()]);
+      cacheAccount(account);
+      writeStorage(STORAGE.orders, serverOrders satisfies Order[]);
+      saveCatalog(products satisfies ManagedProduct[]);
+    }
+    return account;
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 401) {
+      clearApiSession();
+      localStorage.removeItem(STORAGE.session);
+      return null;
+    }
+    throw error;
+  }
 }
 
 function selectedProduct(): Product {
@@ -1566,7 +1617,7 @@ function accountPageContent(): string {
             <label class="field"><span>Телефон *</span><input class="input" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+380..." pattern="[+]?380[0-9]{9}" required /></label>
           </div>
           <label class="field"><span>Компанія</span><input class="input" name="company" /></label>
-          <label class="field"><span>Пароль, від 6 символів *</span><input class="input" name="password" type="password" minlength="6" required /></label>
+          <label class="field"><span>Пароль, від 8 символів *</span><input class="input" name="password" type="password" minlength="8" required /></label>
           <div class="form-status" data-auth-status aria-live="polite"></div>
           <button class="button button--primary button--wide" type="submit">Створити акаунт</button>
         </form>
@@ -1590,7 +1641,7 @@ function profileEditorMarkup(account: Account): string {
         <label class="field"><span>Ім’я *</span><input class="input" name="name" value="${escapeHtml(account.name)}" autocomplete="name" required /></label>
         <label class="field"><span>Телефон *</span><input class="input" name="phone" type="tel" inputmode="tel" autocomplete="tel" value="${escapeHtml(account.phone)}" pattern="[+]?380[0-9]{9}" required /></label>
         <label class="field"><span>Компанія</span><input class="input" name="company" value="${escapeHtml(account.company)}" autocomplete="organization" /></label>
-        <label class="field"><span>Новий пароль</span><input class="input" name="password" type="password" minlength="6" autocomplete="new-password" placeholder="Залиште порожнім, щоб не змінювати" /></label>
+        <label class="field"><span>Новий пароль</span><input class="input" name="password" type="password" minlength="8" autocomplete="new-password" placeholder="Залиште порожнім, щоб не змінювати" /></label>
         <div class="form-status" data-profile-status aria-live="polite"></div>
         <div class="profile-editor__actions">
           <button class="button button--ghost" type="button" data-close-profile>Скасувати</button>
@@ -1612,7 +1663,7 @@ function openProfileEditor(): void {
   content.querySelector<HTMLInputElement>('input[name="name"]')?.focus();
 }
 
-function handleProfileSave(form: HTMLFormElement): void {
+async function handleProfileSave(form: HTMLFormElement): Promise<void> {
   form.classList.add('was-validated');
   const status = form.querySelector<HTMLElement>('[data-profile-status]');
   if (!form.reportValidity()) {
@@ -1635,6 +1686,28 @@ function handleProfileSave(form: HTMLFormElement): void {
     return;
   }
   const password = String(data.get('password') ?? '');
+  if (backendEnabled) {
+    try {
+      const updatedAccount = await backendApi.updateMe({
+        name: String(data.get('name') ?? '').trim(),
+        phone,
+        company: String(data.get('company') ?? '').trim(),
+        ...(password ? { password } : {}),
+      });
+      cacheAccount(updatedAccount);
+      document.querySelector<HTMLDialogElement>('#profile-dialog')?.close();
+      renderAccountButton();
+      renderAccountPage();
+      renderCalculator();
+      renderCatalog(false);
+    } catch (error) {
+      if (status) {
+        status.className = 'form-status is-error';
+        status.textContent = apiErrorMessage(error, 'Не вдалося оновити профіль.');
+      }
+    }
+    return;
+  }
   const updated = stored.map((account) =>
     account.id === current.id
       ? {
@@ -1661,6 +1734,10 @@ function setFormStatus(form: HTMLFormElement, message: string, type: 'error' | '
   status.className = `form-status is-${type}`;
 }
 
+function apiErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof ApiRequestError ? error.message : fallback;
+}
+
 function login(phone: string, password: string): Account | null {
   const normalized = phoneKey(phone);
   const account = accounts().find(
@@ -1671,11 +1748,30 @@ function login(phone: string, password: string): Account | null {
   return account;
 }
 
-function handleLogin(form: HTMLFormElement, adminOnly = false): void {
+async function handleLogin(form: HTMLFormElement, adminOnly = false): Promise<void> {
   form.classList.add('was-validated');
   if (!form.reportValidity()) return;
   const formData = new FormData(form);
-  const account = login(String(formData.get('phone') ?? ''), String(formData.get('password') ?? ''));
+  let account: Account | null = null;
+  if (backendEnabled) {
+    try {
+      const serverAccount = await backendApi.login(
+        String(formData.get('phone') ?? ''),
+        String(formData.get('password') ?? ''),
+      );
+      if (adminOnly && serverAccount.role !== 'admin') {
+        clearApiSession();
+      } else {
+        account = cacheAccount(serverAccount);
+        await refreshBackendSession();
+      }
+    } catch (error) {
+      setFormStatus(form, apiErrorMessage(error, 'Сервер авторизації недоступний.'), 'error');
+      return;
+    }
+  } else {
+    account = login(String(formData.get('phone') ?? ''), String(formData.get('password') ?? ''));
+  }
   if (!account || (adminOnly && account.role !== 'admin')) {
     setFormStatus(form, adminOnly ? 'Потрібен акаунт менеджера.' : 'Невірний телефон або пароль.', 'error');
     return;
@@ -1691,11 +1787,31 @@ function handleLogin(form: HTMLFormElement, adminOnly = false): void {
   }
 }
 
-function handleRegister(form: HTMLFormElement): void {
+async function handleRegister(form: HTMLFormElement): Promise<void> {
   form.classList.add('was-validated');
   if (!form.reportValidity()) return;
   const formData = new FormData(form);
   const phone = normalizePhone(String(formData.get('phone') ?? ''));
+  if (backendEnabled) {
+    try {
+      const account = await backendApi.register({
+        name: String(formData.get('name') ?? '').trim(),
+        phone,
+        company: String(formData.get('company') ?? '').trim(),
+        password: String(formData.get('password') ?? ''),
+      });
+      cacheAccount(account);
+      writeStorage(STORAGE.orders, []);
+      renderAccountButton();
+      renderCalculator();
+      renderCatalog(false);
+      renderAccountPage();
+      window.location.hash = 'account';
+    } catch (error) {
+      setFormStatus(form, apiErrorMessage(error, 'Не вдалося створити акаунт.'), 'error');
+    }
+    return;
+  }
   const existingAccounts = accounts();
   if (existingAccounts.some((account) => phoneKey(account.phone) === phoneKey(phone))) {
     setFormStatus(form, 'Акаунт із таким номером уже існує.', 'error');
@@ -1722,7 +1838,7 @@ function handleRegister(form: HTMLFormElement): void {
   window.location.hash = 'account';
 }
 
-function submitRequest(form: HTMLFormElement): void {
+async function submitRequest(form: HTMLFormElement): Promise<void> {
   const status = document.querySelector<HTMLDivElement>('#request-status');
   const storedCart = cartItems();
   if (!storedCart.length) {
@@ -1762,6 +1878,43 @@ function submitRequest(form: HTMLFormElement): void {
     ];
   });
   const orderTotal = orderItems.reduce((sum, item) => sum + item.total, 0);
+  if (backendEnabled) {
+    const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.dataset.originalText = submitButton.textContent ?? '';
+      submitButton.textContent = 'Зберігаємо заявку…';
+    }
+    try {
+      const serverOrder = await backendApi.createOrder({
+        customerName: String(formData.get('name') ?? '').trim(),
+        phone: requestPhone,
+        company: String(formData.get('company') ?? '').trim(),
+        comment: String(formData.get('comment') ?? '').trim(),
+        items: storedCart.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+      });
+      writeStorage(STORAGE.orders, [...orders().filter((item) => item.id !== serverOrder.id), serverOrder] satisfies Order[]);
+      writeStorage(STORAGE.cart, []);
+      renderCart();
+      renderAccountPage();
+      if (status) {
+        status.className = 'form-status is-success';
+        status.innerHTML = `<strong>Заявку ${escapeHtml(serverOrder.id)} створено.</strong><span>${positionLabel(serverOrder.items.length)} на суму ${formatMoney(serverOrder.total)}. Менеджер побачить її в адмінці.</span>`;
+      }
+    } catch (error) {
+      if (status) {
+        status.className = 'form-status is-error';
+        status.textContent = apiErrorMessage(error, 'Не вдалося передати заявку на сервер.');
+      }
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = submitButton.dataset.originalText || 'Надіслати заявку';
+        submitButton.focus();
+      }
+    }
+    return;
+  }
   const createdAt = new Date().toISOString();
   const order: Order = {
     id: `TP-${Date.now().toString(36).toUpperCase()}`,
@@ -2265,10 +2418,20 @@ function replaceAdminCalendar(open: boolean, focusSelector?: string): void {
   }
 }
 
-function updateOrderStatus(orderId: string, nextStatus: OrderStatus): void {
+async function updateOrderStatus(orderId: string, nextStatus: OrderStatus): Promise<void> {
   const storedOrders = orders();
   const order = storedOrders.find((item) => item.id === orderId);
   if (!order || order.status === nextStatus) return;
+  if (backendEnabled) {
+    try {
+      const updated = await backendApi.updateOrder(orderId, { status: nextStatus });
+      writeStorage(STORAGE.orders, storedOrders.map((item) => (item.id === orderId ? updated : item)) satisfies Order[]);
+    } catch (error) {
+      adminNotice = apiErrorMessage(error, 'Не вдалося змінити статус заявки.');
+    }
+    renderAdmin();
+    return;
+  }
   const previousStatus = order.status;
   order.status = nextStatus;
   order.statusHistory = [
@@ -2367,7 +2530,7 @@ function openAdminProductEditor(productId?: string): void {
   content.querySelector<HTMLInputElement>('input[name="number"]')?.focus();
 }
 
-function handleAdminProductSave(form: HTMLFormElement): void {
+async function handleAdminProductSave(form: HTMLFormElement): Promise<void> {
   form.classList.add('was-validated');
   const status = form.querySelector<HTMLElement>('[data-product-form-status]');
   if (!form.reportValidity()) {
@@ -2419,6 +2582,34 @@ function handleAdminProductSave(form: HTMLFormElement): void {
     active,
     updatedAt: new Date().toISOString(),
   };
+  if (backendEnabled) {
+    try {
+      const serverProduct = existing
+        ? await backendApi.updateProduct(existing.id, updated)
+        : await backendApi.createProduct({
+            number: updated.number,
+            name: updated.name,
+            dimensions: updated.dimensions,
+            basePrice: updated.basePrice,
+            sourceQuantity: updated.sourceQuantity,
+            active: updated.active,
+          });
+      const next = existing
+        ? stored.map((product) => (product.id === existing.id ? serverProduct : product))
+        : [...stored, serverProduct];
+      saveCatalog(next satisfies ManagedProduct[]);
+      refreshProductSurfaces();
+      document.querySelector<HTMLDialogElement>('#admin-product-dialog')?.close();
+      adminNotice = existing ? `Товар №${number} оновлено.` : `Товар №${number} додано до каталогу.`;
+      renderAdmin();
+    } catch (error) {
+      if (status) {
+        status.className = 'form-status is-error';
+        status.textContent = apiErrorMessage(error, 'Не вдалося зберегти товар на сервері.');
+      }
+    }
+    return;
+  }
   const next = existing ? stored.map((product) => (product.id === existing.id ? updated : product)) : [...stored, updated];
   saveCatalog(next);
   refreshProductSurfaces();
@@ -2530,6 +2721,12 @@ function isBackupPayload(value: unknown): value is BackupPayload {
 async function handleBackupImport(input: HTMLInputElement): Promise<void> {
   const file = input.files?.[0];
   if (!file) return;
+  if (backendEnabled) {
+    adminNotice = 'Серверну копію можна завантажити, а відновлення виконується тільки на сервері адміністратором інфраструктури.';
+    input.value = '';
+    renderAdmin();
+    return;
+  }
   try {
     const parsed: unknown = JSON.parse(await file.text());
     if (!isBackupPayload(parsed)) throw new Error('Файл не є коректною резервною копією ToffiPacks.');
@@ -2638,6 +2835,29 @@ async function handleProductImport(input: HTMLInputElement): Promise<void> {
   try {
     const next = importedProducts(await file.text());
     if (!window.confirm(`Імпортувати ${next.length} товарів? Позиції з однаковими номерами буде оновлено.`)) return;
+    if (backendEnabled) {
+      const serverProducts = await backendApi.adminProducts();
+      for (const product of next) {
+        const existing = serverProducts.find((item) => item.id === product.id || item.number.toLocaleLowerCase('uk-UA') === product.number.toLocaleLowerCase('uk-UA'));
+        if (existing) {
+          await backendApi.updateProduct(existing.id, product);
+        } else {
+          await backendApi.createProduct({
+            number: product.number,
+            name: product.name,
+            dimensions: product.dimensions,
+            basePrice: product.basePrice,
+            sourceQuantity: product.sourceQuantity,
+            active: product.active,
+          });
+        }
+      }
+      saveCatalog((await backendApi.adminProducts()) satisfies ManagedProduct[]);
+      refreshProductSurfaces();
+      adminNotice = 'CSV імпортовано на сервер. Каталог оновлено.';
+      renderAdmin();
+      return;
+    }
     saveCatalog(next);
     refreshProductSurfaces();
     adminNotice = 'CSV імпортовано. Каталог оновлено.';
@@ -2669,9 +2889,21 @@ function syncRoute(): void {
   document.body.classList.toggle('is-account', showAccount);
   if (showAdmin) {
     renderAdmin();
+    if (backendEnabled && hasApiSession()) {
+      void refreshBackendSession().then(() => renderAdmin()).catch((error) => {
+        adminNotice = apiErrorMessage(error, 'Не вдалося оновити дані адмінки.');
+        renderAdmin();
+      });
+    }
     window.scrollTo({ top: 0 });
   } else if (showAccount) {
     renderAccountPage();
+    if (backendEnabled && hasApiSession()) {
+      void refreshBackendSession().then(() => {
+        renderAccountButton();
+        renderAccountPage();
+      }).catch(() => undefined);
+    }
     window.scrollTo({ top: 0 });
   }
 }
@@ -2871,7 +3103,7 @@ document.querySelector<HTMLInputElement>('#hero-quantity-input')?.addEventListen
 
 document.querySelector<HTMLFormElement>('#request-form')?.addEventListener('submit', (event) => {
   event.preventDefault();
-  submitRequest(event.currentTarget as HTMLFormElement);
+  void submitRequest(event.currentTarget as HTMLFormElement);
 });
 
 document.addEventListener('click', (event) => {
@@ -2895,7 +3127,7 @@ document.addEventListener('click', (event) => {
 
   const statusOption = target.closest<HTMLButtonElement>('[data-order-status-option]');
   if (statusOption?.dataset.orderId && statusOption.dataset.orderStatusOption) {
-    updateOrderStatus(statusOption.dataset.orderId, statusOption.dataset.orderStatusOption as OrderStatus);
+    void updateOrderStatus(statusOption.dataset.orderId, statusOption.dataset.orderStatusOption as OrderStatus);
     return;
   }
 
@@ -3078,6 +3310,7 @@ document.addEventListener('click', (event) => {
   }
 
   if (target.closest('#logout-button')) {
+    if (backendEnabled) void backendApi.logout().catch(() => clearApiSession());
     localStorage.removeItem(STORAGE.session);
     renderAccountButton();
     renderCalculator();
@@ -3107,6 +3340,18 @@ document.addEventListener('click', (event) => {
     const stored = catalogItems();
     const product = stored.find((item) => item.id === toggleProduct.dataset.toggleProduct);
     if (product) {
+      if (backendEnabled) {
+        void backendApi.updateProduct(product.id, { active: !product.active }).then((updated) => {
+          saveCatalog(stored.map((item) => (item.id === product.id ? updated : item)) satisfies ManagedProduct[]);
+          refreshProductSurfaces();
+          adminNotice = updated.active ? `Товар №${updated.number} повернуто на сайт.` : `Товар №${updated.number} приховано.`;
+          renderAdmin();
+        }).catch((error) => {
+          adminNotice = apiErrorMessage(error, 'Не вдалося змінити видимість товару.');
+          renderAdmin();
+        });
+        return;
+      }
       if (product.active && visibleProducts().length <= 1) {
         adminNotice = 'У каталозі має залишитися хоча б один активний товар.';
       } else {
@@ -3132,6 +3377,19 @@ document.addEventListener('click', (event) => {
       return;
     }
     if (window.confirm(`Видалити коробку №${product.number}? Цю дію не можна скасувати.`)) {
+      if (backendEnabled) {
+        void backendApi.deleteProduct(product.id).then(() => {
+          saveCatalog(stored.filter((item) => item.id !== product.id));
+          writeStorage(STORAGE.cart, cartItems().filter((item) => item.productId !== product.id));
+          refreshProductSurfaces();
+          adminNotice = `Товар №${product.number} видалено.`;
+          renderAdmin();
+        }).catch((error) => {
+          adminNotice = apiErrorMessage(error, 'Не вдалося видалити товар.');
+          renderAdmin();
+        });
+        return;
+      }
       saveCatalog(stored.filter((item) => item.id !== product.id));
       writeStorage(STORAGE.cart, cartItems().filter((item) => item.productId !== product.id));
       refreshProductSurfaces();
@@ -3146,6 +3404,17 @@ document.addEventListener('click', (event) => {
     const order = orders().find((item) => item.id === deleteOrder.dataset.deleteOrder);
     if (!order) return;
     if (window.confirm(`Видалити заявку ${order.id} від ${order.customerName}? Цю дію не можна скасувати.`)) {
+      if (backendEnabled) {
+        void backendApi.deleteOrder(order.id).then(() => {
+          writeStorage(STORAGE.orders, orders().filter((item) => item.id !== order.id));
+          adminNotice = `Заявку ${order.id} видалено.`;
+          renderAdmin();
+        }).catch((error) => {
+          adminNotice = apiErrorMessage(error, 'Не вдалося видалити заявку.');
+          renderAdmin();
+        });
+        return;
+      }
       writeStorage(
         STORAGE.orders,
         orders().filter((item) => item.id !== order.id),
@@ -3174,6 +3443,15 @@ document.addEventListener('click', (event) => {
   }
 
   if (target.closest('[data-export-backup]')) {
+    if (backendEnabled) {
+      void backendApi.backup().then((payload) => {
+        downloadJson(`toffipacks-server-backup-${new Date().toISOString().slice(0, 10)}.json`, payload);
+      }).catch((error) => {
+        adminNotice = apiErrorMessage(error, 'Не вдалося завантажити серверну копію.');
+        renderAdmin();
+      });
+      return;
+    }
     downloadJson(`toffipacks-backup-${new Date().toISOString().slice(0, 10)}.json`, backupPayload());
     return;
   }
@@ -3185,6 +3463,18 @@ document.addEventListener('click', (event) => {
 
   if (target.closest('[data-reset-products]')) {
     if (window.confirm('Відновити початковий каталог? Усі ручні зміни товарів буде втрачено.')) {
+      if (backendEnabled) {
+        void backendApi.resetProducts().then((products) => {
+          saveCatalog(products satisfies ManagedProduct[]);
+          refreshProductSurfaces();
+          adminNotice = 'Початковий каталог відновлено.';
+          renderAdmin();
+        }).catch((error) => {
+          adminNotice = apiErrorMessage(error, 'Не вдалося відновити каталог.');
+          renderAdmin();
+        });
+        return;
+      }
       saveCatalog(seedProducts.map((product) => ({ ...product, active: true, updatedAt: new Date().toISOString() })));
       refreshProductSurfaces();
       adminNotice = 'Початковий каталог відновлено.';
@@ -3194,6 +3484,7 @@ document.addEventListener('click', (event) => {
   }
 
   if (target.closest('#admin-logout')) {
+    if (backendEnabled) void backendApi.logout().catch(() => clearApiSession());
     localStorage.removeItem(STORAGE.session);
     renderAccountButton();
     renderCalculator();
@@ -3307,19 +3598,19 @@ document.addEventListener('submit', (event) => {
   if (!(form instanceof HTMLFormElement)) return;
   if (form.id === 'login-form') {
     event.preventDefault();
-    handleLogin(form);
+    void handleLogin(form);
   } else if (form.id === 'register-form') {
     event.preventDefault();
-    handleRegister(form);
+    void handleRegister(form);
   } else if (form.id === 'admin-login-form') {
     event.preventDefault();
-    handleLogin(form, true);
+    void handleLogin(form, true);
   } else if (form.id === 'admin-product-form') {
     event.preventDefault();
-    handleAdminProductSave(form);
+    void handleAdminProductSave(form);
   } else if (form.id === 'profile-form') {
     event.preventDefault();
-    handleProfileSave(form);
+    void handleProfileSave(form);
   }
 });
 
@@ -3342,6 +3633,14 @@ document.addEventListener('change', (event) => {
     if (order) {
       order.managerNote = target.value.trim();
       writeStorage(STORAGE.orders, storedOrders);
+      if (backendEnabled) {
+        void backendApi.updateOrder(order.id, { managerNote: order.managerNote }).then((updated) => {
+          writeStorage(STORAGE.orders, storedOrders.map((item) => (item.id === updated.id ? updated : item)) satisfies Order[]);
+        }).catch((error) => {
+          adminNotice = apiErrorMessage(error, 'Не вдалося зберегти нотатку менеджера.');
+          renderAdmin();
+        });
+      }
     }
     return;
   }
@@ -3359,6 +3658,16 @@ document.addEventListener('change', (event) => {
     if (account) {
       account.partner = target.checked;
       writeStorage(STORAGE.accounts, storedAccounts);
+      if (backendEnabled) {
+        void backendApi.updateClient(account.id, { partner: account.partner }).then((updated) => {
+          writeStorage(STORAGE.accounts, storedAccounts.map((item) => (item.id === updated.id ? updated : item)) satisfies Account[]);
+          renderAdmin();
+        }).catch((error) => {
+          adminNotice = apiErrorMessage(error, 'Не вдалося змінити статус клієнта.');
+          renderAdmin();
+        });
+        return;
+      }
       renderAdmin();
     }
     return;
@@ -3370,6 +3679,16 @@ document.addEventListener('change', (event) => {
     if (account) {
       account.fixedMarkup = Math.min(0.99, Math.max(0, Number(target.value) || 0));
       writeStorage(STORAGE.accounts, storedAccounts);
+      if (backendEnabled) {
+        void backendApi.updateClient(account.id, { fixedMarkup: account.fixedMarkup }).then((updated) => {
+          writeStorage(STORAGE.accounts, storedAccounts.map((item) => (item.id === updated.id ? updated : item)) satisfies Account[]);
+          renderAdmin();
+        }).catch((error) => {
+          adminNotice = apiErrorMessage(error, 'Не вдалося зберегти персональну ціну.');
+          renderAdmin();
+        });
+        return;
+      }
       renderAdmin();
     }
   }
@@ -3392,12 +3711,33 @@ document.querySelector<HTMLDialogElement>('#profile-dialog')?.addEventListener('
 
 window.addEventListener('hashchange', syncRoute);
 
+async function hydrateFromBackend(): Promise<void> {
+  if (!backendEnabled) return;
+  document.body.dataset.backend = 'loading';
+  try {
+    saveCatalog((await backendApi.products()) satisfies ManagedProduct[]);
+    if (hasApiSession()) await refreshBackendSession();
+    document.body.dataset.backend = 'online';
+    refreshProductSurfaces();
+    renderAccountButton();
+    syncRoute();
+  } catch (error) {
+    document.body.dataset.backend = 'offline';
+    console.error('ToffiPacks backend is unavailable:', error);
+    if (window.location.hash.startsWith('#admin')) {
+      adminNotice = 'Сервер тимчасово недоступний. Дані не змінено.';
+      renderAdmin();
+    }
+  }
+}
+
 renderCatalog(true);
 window.setTimeout(() => renderCatalog(false), 460);
 renderCalculator();
 renderAccountButton();
 syncRoute();
 initializeRevealAnimations();
+void hydrateFromBackend();
 
 if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
   window.addEventListener('load', () => {

@@ -6,9 +6,11 @@
   "packageManager": "pnpm@11.16.0",
   "scripts": {
     "dev": "vite",
+    "server": "node server/index.mjs",
+    "server:test": "node --experimental-strip-types --test server/*.test.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --test scripts/*.test.mjs",
+    "test": "node --experimental-strip-types --test scripts/*.test.mjs server/*.test.mjs",
     "check": "tsc --noEmit",
     "standalone": "npm run build && node scripts/make-standalone.mjs"
   },
