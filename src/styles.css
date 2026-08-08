@@ -1103,7 +1103,7 @@ svg {
   z-index: 30;
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(220px, 0.34fr) auto;
-  gap: 14px;
+  gap: 14px 22px;
   padding: 16px;
   background: var(--cream);
   border: 1px solid var(--line);
@@ -1142,6 +1142,7 @@ svg {
 }
 
 .sort-field {
+  min-width: 0;
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: center;
@@ -1151,6 +1152,11 @@ svg {
 .catalog-sort {
   position: relative;
   min-width: 250px;
+}
+
+#reset-catalog {
+  margin-left: 2px;
+  white-space: nowrap;
 }
 
 .catalog-sort__trigger {
@@ -5733,11 +5739,20 @@ svg {
   }
 
   .catalog-toolbar {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 20px;
   }
 
   .catalog-toolbar .search-field {
     grid-column: 1 / -1;
+  }
+
+  .catalog-sort {
+    min-width: 0;
+  }
+
+  #reset-catalog {
+    margin-left: 0;
   }
 
   .calculator-shell {
