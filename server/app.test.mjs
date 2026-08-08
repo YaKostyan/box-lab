@@ -141,16 +141,25 @@ test('admin controls clients, products and orders with audit log', async () => {
   const partner = await request(`/api/admin/clients/${clientId}`, {
     method: 'PATCH',
     token: adminToken,
-    body: { partner: true, fixedMarkup: 0.5 },
+    body: { partner: true, productPrices: { 'box-101': 4.35, 'box-301': 5.2 } },
   });
   assert.equal(partner.payload.client.partner, true);
+  assert.equal(partner.payload.client.productPrices['box-101'], 4.35);
 
   const personalized = await request('/api/quote', {
     method: 'POST',
     token: clientToken,
     body: { items: [{ productId: 'box-101', quantity: 1 }] },
   });
-  assert.equal(personalized.payload.items[0].unitPrice, 4.5);
+  assert.equal(personalized.payload.items[0].unitPrice, 4.35);
+
+  const fallback = await request('/api/quote', {
+    method: 'POST',
+    token: clientToken,
+    body: { items: [{ productId: 'box-302', quantity: 1000 }] },
+  });
+  assert.equal(fallback.payload.items[0].unitPrice, 8);
+  assert.equal(fallback.payload.items[0].priceType, 'Оптова ціна');
 
   const product = await request('/api/admin/products', {
     method: 'POST',
@@ -197,4 +206,3 @@ test('logout revokes the bearer session', async () => {
   const me = await request('/api/auth/me', { token: clientToken });
   assert.equal(me.response.status, 401);
 });
-

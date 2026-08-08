@@ -95,7 +95,7 @@ export function createApp(overrides = {}) {
         const row = db.prepare('SELECT * FROM accounts WHERE id = ?').get(account.id);
         const session = issueSession(db, account.id, config.sessionDays);
         audit(db, account.id, 'register', 'account', account.id, { phone });
-        return sendJson(response, 201, { account: mapAccount(row), token: session.token, expiresAt: session.expiresAt });
+        return sendJson(response, 201, { account: mapAccount(row, db), token: session.token, expiresAt: session.expiresAt });
       }
 
       if (route === 'POST /api/auth/login') {
@@ -109,12 +109,12 @@ export function createApp(overrides = {}) {
         }
         const session = issueSession(db, row.id, config.sessionDays);
         audit(db, row.id, 'login', 'account', row.id, {});
-        return sendJson(response, 200, { account: mapAccount(row), token: session.token, expiresAt: session.expiresAt });
+        return sendJson(response, 200, { account: mapAccount(row, db), token: session.token, expiresAt: session.expiresAt });
       }
 
       if (route === 'GET /api/auth/me') {
         const account = requireAuth(auth);
-        return sendJson(response, 200, { account: mapAccount(account) });
+        return sendJson(response, 200, { account: mapAccount(account, db) });
       }
 
       if (route === 'PATCH /api/auth/me') {
@@ -133,7 +133,7 @@ export function createApp(overrides = {}) {
           throw error;
         }
         audit(db, account.id, 'update_profile', 'account', account.id, { phone });
-        return sendJson(response, 200, { account: mapAccount(db.prepare('SELECT * FROM accounts WHERE id = ?').get(account.id)) });
+        return sendJson(response, 200, { account: mapAccount(db.prepare('SELECT * FROM accounts WHERE id = ?').get(account.id), db) });
       }
 
       if (route === 'POST /api/auth/logout') {
@@ -292,7 +292,7 @@ export function createApp(overrides = {}) {
       if (route === 'GET /api/admin/clients') {
         requireAdmin(auth);
         const clients = db.prepare("SELECT * FROM accounts WHERE role = 'client' AND disabled_at IS NULL ORDER BY created_at DESC").all();
-        return sendJson(response, 200, { clients: clients.map(mapAccount) });
+        return sendJson(response, 200, { clients: clients.map((client) => mapAccount(client, db)) });
       }
 
       const clientMatch = url.pathname.match(/^\/api\/admin\/clients\/([^/]+)$/);
@@ -303,11 +303,26 @@ export function createApp(overrides = {}) {
         if (!existing) throw new ApiError(404, 'Клієнта не знайдено.', 'client_not_found');
         const body = await readJson(request);
         const partner = body.partner === undefined ? Boolean(existing.partner) : Boolean(body.partner);
-        const fixedMarkup = body.fixedMarkup === undefined ? existing.fixed_markup : numberBetween(body.fixedMarkup, 0, 0.99, 'Персональна націнка');
-        db.prepare('UPDATE accounts SET partner = ?, fixed_markup = ?, updated_at = ? WHERE id = ?')
-          .run(partner ? 1 : 0, fixedMarkup, new Date().toISOString(), id);
-        audit(db, admin.id, 'update_pricing', 'account', id, { partner, fixedMarkup });
-        return sendJson(response, 200, { client: mapAccount(db.prepare('SELECT * FROM accounts WHERE id = ?').get(id)) });
+        const productPrices = body.productPrices === undefined ? undefined : validateProductPrices(db, body.productPrices);
+        const now = new Date().toISOString();
+        transaction(db, () => {
+          db.prepare('UPDATE accounts SET partner = ?, updated_at = ? WHERE id = ?').run(partner ? 1 : 0, now, id);
+          if (productPrices) {
+            db.prepare('DELETE FROM account_product_prices WHERE account_id = ?').run(id);
+            const insertPrice = db.prepare(`
+              INSERT INTO account_product_prices (account_id, product_id, unit_price, updated_at)
+              VALUES (?, ?, ?, ?)
+            `);
+            for (const [productId, unitPrice] of Object.entries(productPrices)) {
+              insertPrice.run(id, productId, unitPrice, now);
+            }
+          }
+          audit(db, admin.id, 'update_pricing', 'account', id, {
+            partner,
+            productPriceCount: productPrices ? Object.keys(productPrices).length : undefined,
+          });
+        });
+        return sendJson(response, 200, { client: mapAccount(db.prepare('SELECT * FROM accounts WHERE id = ?').get(id), db) });
       }
 
       if (route === 'GET /api/admin/audit') {
@@ -330,6 +345,7 @@ export function createApp(overrides = {}) {
           generatedAt: new Date().toISOString(),
           products: db.prepare('SELECT * FROM products').all(),
           accounts: db.prepare("SELECT id, name, phone, company, role, partner, fixed_markup, created_at, updated_at, disabled_at FROM accounts").all(),
+          accountProductPrices: db.prepare('SELECT * FROM account_product_prices ORDER BY account_id, product_id').all(),
           orders: selectOrders(db, {}, true, true),
           audit: db.prepare('SELECT * FROM audit_log ORDER BY id').all(),
         };
@@ -477,6 +493,21 @@ function validateProduct(body) {
   };
 }
 
+function validateProductPrices(db, value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ApiError(400, 'Персональні ціни мають бути списком товарів.', 'invalid_product_prices');
+  }
+  const entries = Object.entries(value);
+  if (entries.length > 1000) throw new ApiError(400, 'Забагато персональних цін.', 'invalid_product_prices');
+  const productExists = db.prepare('SELECT id FROM products WHERE id = ? AND deleted_at IS NULL');
+  const result = {};
+  for (const [productId, rawPrice] of entries) {
+    if (!productExists.get(productId)) continue;
+    result[productId] = money(numberBetween(rawPrice, 0.01, 10000, 'Персональна ціна'));
+  }
+  return result;
+}
+
 function mapProduct(row) {
   return {
     id: row.id,
@@ -491,7 +522,13 @@ function mapProduct(row) {
   };
 }
 
-function mapAccount(row) {
+function mapAccount(row, db) {
+  const productPrices = Object.fromEntries(
+    db
+      .prepare('SELECT product_id, unit_price FROM account_product_prices WHERE account_id = ? ORDER BY product_id')
+      .all(row.id)
+      .map((price) => [price.product_id, price.unit_price]),
+  );
   return {
     id: row.id,
     name: row.name,
@@ -500,6 +537,7 @@ function mapAccount(row) {
     role: row.role,
     partner: Boolean(row.partner),
     fixedMarkup: row.fixed_markup,
+    productPrices,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -561,12 +599,17 @@ function rateLimit(request, store, bucket, max, windowMs) {
 function calculateItems(db, rawItems, account) {
   if (!Array.isArray(rawItems) || rawItems.length < 1 || rawItems.length > 50) throw new ApiError(400, 'Додайте від 1 до 50 позицій.', 'invalid_items');
   const getProduct = db.prepare('SELECT * FROM products WHERE id = ? AND active = 1 AND deleted_at IS NULL');
+  const getPersonalPrice = account?.partner
+    ? db.prepare('SELECT unit_price FROM account_product_prices WHERE account_id = ? AND product_id = ?')
+    : null;
   return rawItems.map((raw) => {
     const product = getProduct.get(String(raw.productId ?? ''));
     if (!product) throw new ApiError(400, 'Один із товарів недоступний.', 'product_unavailable');
     const quantity = Math.round(numberBetween(raw.quantity, 1, MAX_QUANTITY, 'Кількість'));
-    const markup = account?.partner ? Math.min(Math.max(account.fixed_markup, 0), 0.99) : quantity >= WHOLESALE_FROM ? WHOLESALE_MARKUP : RETAIL_MARKUP;
-    const unitPrice = money(product.base_price + markup);
+    const personalPrice = getPersonalPrice?.get(account.id, product.id)?.unit_price;
+    const hasPersonalPrice = Number.isFinite(personalPrice) && personalPrice > 0;
+    const publicMarkup = quantity >= WHOLESALE_FROM ? WHOLESALE_MARKUP : RETAIL_MARKUP;
+    const unitPrice = money(hasPersonalPrice ? personalPrice : product.base_price + publicMarkup);
     return {
       productId: product.id,
       productNumber: product.number,
@@ -574,7 +617,7 @@ function calculateItems(db, rawItems, account) {
       quantity,
       unitPrice,
       total: money(unitPrice * quantity),
-      priceType: account?.partner ? 'Персональна ціна' : quantity >= WHOLESALE_FROM ? 'Оптова ціна' : 'Роздрібна ціна',
+      priceType: hasPersonalPrice ? 'Персональна ціна' : quantity >= WHOLESALE_FROM ? 'Оптова ціна' : 'Роздрібна ціна',
     };
   });
 }
@@ -692,4 +735,3 @@ async function notifyTelegram(config, order) {
   });
   if (!response.ok) throw new Error(`Telegram returned ${response.status}`);
 }
-

@@ -32,6 +32,7 @@ export interface ApiAccount {
   role: 'client' | 'admin';
   partner: boolean;
   fixedMarkup: number;
+  productPrices: Record<string, number>;
   createdAt: string;
   updatedAt?: string;
 }
@@ -143,8 +144,7 @@ export const backendApi = {
     (await apiRequest<{ order: ApiOrder }>(`/api/admin/orders/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) })).order,
   deleteOrder: (id: string) => apiRequest<{ ok: true }>(`/api/admin/orders/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   adminClients: async () => (await apiRequest<{ clients: ApiAccount[] }>('/api/admin/clients')).clients,
-  updateClient: async (id: string, body: { partner?: boolean; fixedMarkup?: number }) =>
+  updateClient: async (id: string, body: { partner?: boolean; productPrices?: Record<string, number> }) =>
     (await apiRequest<{ client: ApiAccount }>(`/api/admin/clients/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) })).client,
   backup: () => apiRequest<Record<string, unknown>>('/api/admin/backup'),
 };
-

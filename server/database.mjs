@@ -51,6 +51,16 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS sessions_account_idx ON sessions(account_id);
 CREATE INDEX IF NOT EXISTS sessions_expiry_idx ON sessions(expires_at);
 
+CREATE TABLE IF NOT EXISTS account_product_prices (
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  unit_price REAL NOT NULL CHECK (unit_price > 0 AND unit_price <= 10000),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (account_id, product_id)
+);
+
+CREATE INDEX IF NOT EXISTS account_product_prices_product_idx ON account_product_prices(product_id);
+
 CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY,
   created_at TEXT NOT NULL,
@@ -112,7 +122,25 @@ export function createDatabase({ path, adminPhone, adminPassword }) {
   db.exec(SCHEMA);
   seedCatalog(db);
   seedAdmin(db, adminPhone, adminPassword);
+  migrateLegacyPartnerPrices(db);
   return db;
+}
+
+function migrateLegacyPartnerPrices(db) {
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT OR IGNORE INTO account_product_prices (account_id, product_id, unit_price, updated_at)
+    SELECT accounts.id, products.id, ROUND(products.base_price + accounts.fixed_markup, 2), ?
+    FROM accounts
+    CROSS JOIN products
+    WHERE accounts.partner = 1
+      AND accounts.disabled_at IS NULL
+      AND products.deleted_at IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM account_product_prices existing
+        WHERE existing.account_id = accounts.id
+      )
+  `).run(now);
 }
 
 function seedCatalog(db) {
@@ -172,4 +200,3 @@ export function closeDatabase(db) {
     db.close();
   }
 }
-

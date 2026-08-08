@@ -6,6 +6,7 @@ import {
   faqItems,
   formatMoney,
   MAX_QUANTITY,
+  personalUnitPrice,
   productVolume,
   products as seedProducts,
   publicUnitPrice,
@@ -35,6 +36,7 @@ interface Account {
   role: AccountRole;
   partner: boolean;
   fixedMarkup: number;
+  productPrices: Record<string, number>;
   createdAt: string;
   updatedAt?: string;
 }
@@ -101,6 +103,14 @@ const STORAGE = {
 const PRODUCT_NUMBER_PATTERN = /^[\p{L}\p{N}._-]+$/u;
 
 const now = new Date().toISOString();
+const defaultPersonalPrices = (): Record<string, number> =>
+  Object.fromEntries(
+    seedProducts.map((product) => [
+      product.id,
+      Math.round((product.basePrice + DEFAULT_PARTNER_MARKUP) * 100) / 100,
+    ]),
+  );
+
 const seedAccounts: Account[] = [
   {
     id: 'account-admin',
@@ -111,6 +121,7 @@ const seedAccounts: Account[] = [
     role: 'admin',
     partner: false,
     fixedMarkup: DEFAULT_PARTNER_MARKUP,
+    productPrices: {},
     createdAt: now,
   },
   {
@@ -122,6 +133,7 @@ const seedAccounts: Account[] = [
     role: 'client',
     partner: true,
     fixedMarkup: DEFAULT_PARTNER_MARKUP,
+    productPrices: defaultPersonalPrices(),
     createdAt: now,
   },
 ];
@@ -187,12 +199,21 @@ let adminOrderDate = '';
 let adminOrderDateEnd = '';
 let adminCalendarCursor = '';
 let adminNotice = '';
+const expandedClientPriceIds = new Set<string>();
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('Root element #app was not found.');
 
 function accounts(): Account[] {
-  return readStorage<Account[]>(STORAGE.accounts, seedAccounts);
+  return readStorage<Account[]>(STORAGE.accounts, seedAccounts).map((account) => ({
+    ...account,
+    productPrices:
+      account.productPrices && typeof account.productPrices === 'object'
+        ? account.productPrices
+        : account.partner
+          ? defaultPersonalPrices()
+          : {},
+  }));
 }
 
 function catalogItems(): ManagedProduct[] {
@@ -450,8 +471,8 @@ function positionLabel(count: number): string {
   return `${count} позицій`;
 }
 
-function priceTypeLabel(quantity: number, account: Account | null): string {
-  if (account?.partner) return 'Фіксована ціна клієнта';
+function priceTypeLabel(quantity: number, account: Account | null, product: Product): string {
+  if (personalUnitPrice(product, account) !== null) return 'Персональна ціна';
   return quantity >= WHOLESALE_FROM ? 'Оптова ціна' : 'Роздрібна ціна';
 }
 
@@ -1064,7 +1085,7 @@ function productCard(product: Product): string {
   const account = currentAccount();
   const retail = publicUnitPrice(product, 1);
   const wholesale = publicUnitPrice(product, WHOLESALE_FROM);
-  const partner = account?.partner ? unitPrice(product, 1, account) : null;
+  const partner = personalUnitPrice(product, account);
   return `
     <article
       class="product-card${product.id === selectedProductId ? ' is-selected' : ''}"
@@ -1080,7 +1101,7 @@ function productCard(product: Product): string {
       <div class="product-card__prices">
         ${
           partner !== null
-            ? `<div class="partner-price"><span>Ваша фіксована</span><strong>${formatMoney(partner)}<small>/шт.</small></strong></div>`
+            ? `<div class="partner-price"><span>Ваша персональна</span><strong>${formatMoney(partner)}<small>/шт.</small></strong></div>`
             : `
               <div><span>1–999 шт.</span><strong>${formatMoney(retail)}</strong></div>
               <div><span>від 1000 шт.</span><strong>${formatMoney(wholesale)}</strong></div>
@@ -1137,7 +1158,7 @@ function productDialogContent(product: Product): string {
         </div>
 
         <div class="product-modal__total" aria-live="polite">
-          <div><span id="modal-price-tier">${priceTypeLabel(selectedQuantity, account)}</span><strong id="modal-unit-price">${formatMoney(calculatedUnit)} / шт.</strong></div>
+          <div><span id="modal-price-tier">${priceTypeLabel(selectedQuantity, account, product)}</span><strong id="modal-unit-price">${formatMoney(calculatedUnit)} / шт.</strong></div>
           <div><span>Весь тираж</span><strong id="modal-total">${formatMoney(total)}</strong></div>
         </div>
 
@@ -1162,7 +1183,7 @@ function updateProductDialog(): void {
   const quantityOutput = dialog.querySelector<HTMLOutputElement>('#modal-quantity-output');
   if (quantityOutput) quantityOutput.value = `${selectedQuantity.toLocaleString('uk-UA')} шт.`;
   const tier = dialog.querySelector<HTMLElement>('#modal-price-tier');
-  if (tier) tier.textContent = priceTypeLabel(selectedQuantity, account);
+  if (tier) tier.textContent = priceTypeLabel(selectedQuantity, account, product);
   const unit = dialog.querySelector<HTMLElement>('#modal-unit-price');
   if (unit) unit.textContent = `${formatMoney(calculatedUnit)} / шт.`;
   const total = dialog.querySelector<HTMLElement>('#modal-total');
@@ -1357,7 +1378,7 @@ function renderCalculator(): void {
   const account = currentAccount();
   const calculatedUnit = unitPrice(product, selectedQuantity, account);
   const total = calculatedUnit * selectedQuantity;
-  const tier = priceTypeLabel(selectedQuantity, account);
+  const tier = priceTypeLabel(selectedQuantity, account, product);
 
   syncProductPickers();
   document.querySelectorAll<HTMLInputElement>('#quantity-input, #hero-quantity-input, #modal-quantity-input').forEach((input) => {
@@ -1391,14 +1412,15 @@ function renderCalculator(): void {
 
   const badge = document.querySelector<HTMLElement>('#account-price-badge');
   if (badge) {
-    badge.textContent = account?.partner ? 'Персональна ціна активна' : 'Публічна ціна';
-    badge.classList.toggle('is-partner', Boolean(account?.partner));
+    const hasPersonalPrice = personalUnitPrice(product, account) !== null;
+    badge.textContent = hasPersonalPrice ? 'Персональна ціна активна' : 'Публічна ціна';
+    badge.classList.toggle('is-partner', hasPersonalPrice);
   }
 
   const threshold = document.querySelector<HTMLElement>('#threshold-note');
   if (threshold) {
-    if (account?.partner) {
-      threshold.innerHTML = `<strong>Фіксована ціна:</strong> ${formatMoney(calculatedUnit)} за одиницю незалежно від тиражу.`;
+    if (personalUnitPrice(product, account) !== null) {
+      threshold.innerHTML = `<strong>Ваша персональна ціна:</strong> ${formatMoney(calculatedUnit)} за одиницю незалежно від тиражу.`;
     } else if (selectedQuantity < WHOLESALE_FROM) {
       const missing = WHOLESALE_FROM - selectedQuantity;
       const wholesaleTotal = publicUnitPrice(product, WHOLESALE_FROM) * WHOLESALE_FROM;
@@ -1600,6 +1622,8 @@ function accountPageContent(): string {
       .toLocaleUpperCase('uk-UA');
     const product = selectedProduct();
     const personalPrice = unitPrice(product, selectedQuantity, account);
+    const personalPriceCount = visibleProducts().filter((item) => personalUnitPrice(item, account) !== null).length;
+    const hasPersonalPrices = personalPriceCount > 0;
     return `
       <div class="account-dashboard">
         <section class="account-dashboard__hero">
@@ -1615,10 +1639,10 @@ function accountPageContent(): string {
             <span class="account-client-badge">${account.partner ? 'Постійний клієнт' : 'Новий клієнт'}</span>
             <button class="account-logout" type="button" id="logout-button">Вийти</button>
           </div>
-          <div class="account-price-card${account.partner ? ' is-partner' : ''}">
+          <div class="account-price-card${hasPersonalPrices ? ' is-partner' : ''}">
             <span>Ваші ціни</span>
-            <strong>${account.partner ? 'Персональна ціна активна' : 'Стандартні ціни'}</strong>
-            <p>${account.partner ? 'Ваша ціна вже застосована в каталозі, калькуляторі та кошику.' : 'Усі суми показані одразу в кінцевому вигляді.'}</p>
+            <strong>${hasPersonalPrices ? 'Персональні ціни активні' : 'Стандартні ціни'}</strong>
+            <p>${hasPersonalPrices ? `Окремі ціни застосовано для ${personalPriceCount} розмірів у каталозі, калькуляторі та кошику.` : 'Усі суми показані одразу в кінцевому вигляді.'}</p>
           </div>
         </section>
 
@@ -1932,6 +1956,7 @@ async function handleRegister(form: HTMLFormElement): Promise<void> {
     role: 'client',
     partner: false,
     fixedMarkup: DEFAULT_PARTNER_MARKUP,
+    productPrices: {},
     createdAt: new Date().toISOString(),
   };
   existingAccounts.push(account);
@@ -1979,7 +2004,7 @@ async function submitRequest(form: HTMLFormElement): Promise<void> {
         quantity: cartItem.quantity,
         unitPrice: calculatedUnit,
         total: calculatedUnit * cartItem.quantity,
-        priceType: priceTypeLabel(cartItem.quantity, account),
+        priceType: priceTypeLabel(cartItem.quantity, account, product),
       },
     ];
   });
@@ -2360,28 +2385,94 @@ function adminOrdersPage(storedOrders: Order[]): string {
   `;
 }
 
+function clientProductPricesMarkup(client: Account): string {
+  return `
+    <div class="client-prices-panel__head">
+      <div>
+        <span class="technical-label">Персональний прайс</span>
+        <h3>Окрема ціна для кожної коробки</h3>
+      </div>
+      <p>Вкажіть кінцеву ціну за одну штуку. Це не відсоток і не загальна знижка.</p>
+    </div>
+    <div class="client-product-prices">
+      ${catalogItems()
+        .map((product, index) => {
+          const personalPrice = Number(client.productPrices?.[product.id]);
+          const hasPrice = Number.isFinite(personalPrice) && personalPrice > 0;
+          return `
+            <label class="client-product-price${product.active ? '' : ' is-hidden'}">
+              <span class="client-product-price__index">${String(index + 1).padStart(2, '0')}</span>
+              <span class="client-product-price__product">
+                <strong>№${escapeHtml(product.number)} · ${dimensionText(product.dimensions)}</strong>
+                <small>${product.active ? 'Доступна на сайті' : 'Прихована в каталозі'}</small>
+              </span>
+              <span class="client-product-price__public">
+                <small>Звичайна / оптова</small>
+                <strong>${formatMoney(publicUnitPrice(product, 1))} / ${formatMoney(publicUnitPrice(product, WHOLESALE_FROM))}</strong>
+              </span>
+              <span class="client-product-price__field">
+                <small>Ціна клієнта</small>
+                <span>
+                  <input
+                    class="input"
+                    type="number"
+                    inputmode="decimal"
+                    min="0.01"
+                    max="10000"
+                    step="0.01"
+                    value="${hasPrice ? personalPrice : ''}"
+                    placeholder="Не задано"
+                    data-client-product-price="${escapeHtml(product.id)}"
+                    data-client-id="${escapeHtml(client.id)}"
+                    ${client.partner ? '' : 'disabled'}
+                  />
+                  <em>грн / шт.</em>
+                </span>
+              </span>
+            </label>
+          `;
+        })
+        .join('')}
+    </div>
+  `;
+}
+
 function adminClientsPage(clients: Account[]): string {
+  if (!expandedClientPriceIds.size) {
+    const initialClient = clients.find((client) => client.partner) ?? clients[0];
+    if (initialClient) expandedClientPriceIds.add(initialClient.id);
+  }
   return `
     <div class="admin-page-heading">
       <div><p class="eyebrow"><span></span> Клієнти</p><h1 id="admin-title">Контакти й особливі умови.</h1></div>
-      <p>Знайдіть клієнта за телефоном, активуйте статус постійного та налаштуйте персональну ціну.</p>
+      <p>Знайдіть клієнта за телефоном, активуйте статус постійного та задайте окрему кінцеву ціну для кожної коробки.</p>
     </div>
     <div class="admin-toolbar admin-toolbar--clients">
       <label class="admin-search"><span class="sr-only">Пошук клієнтів</span><input id="admin-client-search" type="search" placeholder="Ім’я, компанія або телефон" /></label>
     </div>
     <div class="clients-table clients-table--expanded">
-      <div class="clients-table__head"><span>Клієнт</span><span>Статус</span><span>Умови</span></div>
+      <div class="clients-table__head"><span>Клієнт</span><span>Статус</span><span>Персональні ціни</span></div>
       ${clients.length
         ? clients
-            .map(
-              (client) => `
-                <div class="client-row" data-admin-client data-search="${escapeHtml(`${client.name} ${client.company} ${client.phone}`.toLocaleLowerCase('uk-UA'))}">
-                  <div><strong>${escapeHtml(client.name)}</strong><span>${escapeHtml(client.company || 'Без компанії')}</span><a href="tel:${escapeHtml(client.phone)}">${escapeHtml(client.phone)}</a></div>
-                  <label class="partner-toggle"><input type="checkbox" data-partner-toggle="${client.id}"${client.partner ? ' checked' : ''} /><span>${client.partner ? 'Постійний' : 'Звичайний'}</span></label>
-                  <label class="client-price-field"><span>Персональна ставка</span><input class="input" type="number" min="0" max="0.99" step="0.01" value="${client.fixedMarkup}" data-partner-markup="${client.id}"${client.partner ? '' : ' disabled'} /><small>грн / шт.</small></label>
-                </div>
-              `,
-            )
+            .map((client) => {
+              const expanded = expandedClientPriceIds.has(client.id);
+              const priceCount = catalogItems().filter((product) => Number(client.productPrices?.[product.id]) > 0).length;
+              return `
+                <article class="client-card" data-admin-client data-search="${escapeHtml(`${client.name} ${client.company} ${client.phone}`.toLocaleLowerCase('uk-UA'))}">
+                  <div class="client-row">
+                    <div class="client-row__identity"><strong>${escapeHtml(client.name)}</strong><span>${escapeHtml(client.company || 'Без компанії')}</span><a href="tel:${escapeHtml(client.phone)}">${escapeHtml(client.phone)}</a></div>
+                    <label class="partner-toggle"><input type="checkbox" data-partner-toggle="${client.id}"${client.partner ? ' checked' : ''} /><span>${client.partner ? 'Постійний' : 'Звичайний'}</span></label>
+                    <button class="client-prices-toggle${expanded ? ' is-open' : ''}" type="button" data-client-prices-toggle="${escapeHtml(client.id)}" aria-expanded="${expanded}" aria-controls="client-prices-${escapeHtml(client.id)}">
+                      <span><strong>${priceCount} із ${catalogItems().length}</strong><small>цін налаштовано</small></span>
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5" /></svg>
+                    </button>
+                  </div>
+                  <section class="client-prices-panel${expanded ? ' is-open' : ''}" id="client-prices-${escapeHtml(client.id)}"${expanded ? '' : ' hidden'}>
+                    ${clientProductPricesMarkup(client)}
+                  </section>
+                </article>
+              `;
+            })
             .join('')
         : '<div class="admin-empty"><h3>Клієнтів ще немає.</h3></div>'}
     </div>
@@ -3428,6 +3519,29 @@ document.addEventListener('click', (event) => {
     return;
   }
 
+  const clientPricesToggle = target.closest<HTMLButtonElement>('[data-client-prices-toggle]');
+  if (clientPricesToggle?.dataset.clientPricesToggle) {
+    const clientId = clientPricesToggle.dataset.clientPricesToggle;
+    const panel = document.getElementById(`client-prices-${clientId}`);
+    const willOpen = !clientPricesToggle.classList.contains('is-open');
+    clientPricesToggle.classList.toggle('is-open', willOpen);
+    clientPricesToggle.setAttribute('aria-expanded', String(willOpen));
+    if (willOpen) {
+      expandedClientPriceIds.add(clientId);
+      if (panel) {
+        panel.hidden = false;
+        window.requestAnimationFrame(() => panel.classList.add('is-open'));
+      }
+    } else {
+      expandedClientPriceIds.delete(clientId);
+      panel?.classList.remove('is-open');
+      window.setTimeout(() => {
+        if (panel && !panel.classList.contains('is-open')) panel.hidden = true;
+      }, 220);
+    }
+    return;
+  }
+
   if (target.closest('[data-create-product]')) {
     openAdminProductEditor();
     return;
@@ -3808,9 +3922,18 @@ document.addEventListener('change', (event) => {
     const account = storedAccounts.find((item) => item.id === target.dataset.partnerToggle);
     if (account) {
       account.partner = target.checked;
+      if (account.partner && !Object.keys(account.productPrices ?? {}).length) {
+        account.productPrices = Object.fromEntries(
+          catalogItems().map((product) => [
+            product.id,
+            Math.round((product.basePrice + DEFAULT_PARTNER_MARKUP) * 100) / 100,
+          ]),
+        );
+      }
+      if (account.partner) expandedClientPriceIds.add(account.id);
       writeStorage(STORAGE.accounts, storedAccounts);
       if (backendEnabled) {
-        void backendApi.updateClient(account.id, { partner: account.partner }).then((updated) => {
+        void backendApi.updateClient(account.id, { partner: account.partner, productPrices: account.productPrices }).then((updated) => {
           writeStorage(STORAGE.accounts, storedAccounts.map((item) => (item.id === updated.id ? updated : item)) satisfies Account[]);
           renderAdmin();
         }).catch((error) => {
@@ -3824,23 +3947,42 @@ document.addEventListener('change', (event) => {
     return;
   }
 
-  if (target instanceof HTMLInputElement && target.dataset.partnerMarkup) {
+  if (target instanceof HTMLInputElement && target.dataset.clientProductPrice && target.dataset.clientId) {
     const storedAccounts = accounts();
-    const account = storedAccounts.find((item) => item.id === target.dataset.partnerMarkup);
+    const account = storedAccounts.find((item) => item.id === target.dataset.clientId);
     if (account) {
-      account.fixedMarkup = Math.min(0.99, Math.max(0, Number(target.value) || 0));
+      const rawValue = target.value.trim();
+      const nextPrice = Number(rawValue);
+      if (rawValue && (!Number.isFinite(nextPrice) || nextPrice < 0.01 || nextPrice > 10000)) {
+        target.setCustomValidity('Вкажіть кінцеву ціну від 0,01 до 10 000 грн.');
+        target.reportValidity();
+        return;
+      }
+      target.setCustomValidity('');
+      account.productPrices = { ...(account.productPrices ?? {}) };
+      if (rawValue) account.productPrices[target.dataset.clientProductPrice] = Math.round(nextPrice * 100) / 100;
+      else delete account.productPrices[target.dataset.clientProductPrice];
+      expandedClientPriceIds.add(account.id);
       writeStorage(STORAGE.accounts, storedAccounts);
+      const priceCount = catalogItems().filter((product) => Number(account.productPrices?.[product.id]) > 0).length;
+      const summary = document.querySelector<HTMLElement>(`[data-client-prices-toggle="${CSS.escape(account.id)}"] strong`);
+      if (summary) summary.textContent = `${priceCount} із ${catalogItems().length}`;
+      const priceCard = target.closest<HTMLElement>('.client-product-price');
+      priceCard?.classList.remove('is-saved');
+      if (priceCard) {
+        void priceCard.offsetWidth;
+        priceCard.classList.add('is-saved');
+        window.setTimeout(() => priceCard.classList.remove('is-saved'), 900);
+      }
       if (backendEnabled) {
-        void backendApi.updateClient(account.id, { fixedMarkup: account.fixedMarkup }).then((updated) => {
+        void backendApi.updateClient(account.id, { productPrices: account.productPrices }).then((updated) => {
           writeStorage(STORAGE.accounts, storedAccounts.map((item) => (item.id === updated.id ? updated : item)) satisfies Account[]);
-          renderAdmin();
         }).catch((error) => {
           adminNotice = apiErrorMessage(error, 'Не вдалося зберегти персональну ціну.');
           renderAdmin();
         });
         return;
       }
-      renderAdmin();
     }
   }
 });

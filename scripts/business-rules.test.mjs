@@ -23,7 +23,8 @@ test('узгоджений каталог і ключові правила ці�
   assert.equal(publicUnitPrice(box101, 1), 6);
   assert.equal(publicUnitPrice(box101, 999), 6);
   assert.equal(publicUnitPrice(box101, 1_000), 5);
-  assert.equal(unitPrice(box101, 1, { partner: true, fixedMarkup: 0.5 }), 4.5);
+  assert.equal(unitPrice(box101, 1, { partner: true, productPrices: { [box101.id]: 4.35 } }), 4.35);
+  assert.equal(unitPrice(box101, 1_000, { partner: true, productPrices: {} }), 5);
 
   for (const product of products) {
     assert.equal(publicUnitPrice(product, 1), product.basePrice + 2);

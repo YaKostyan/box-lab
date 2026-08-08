@@ -15,7 +15,7 @@ export interface Product {
 
 export interface PartnerAccount {
   partner: boolean;
-  fixedMarkup: number;
+  productPrices?: Record<string, number>;
 }
 
 export interface FitAnalysis {
@@ -178,10 +178,18 @@ export function unitPrice(
   quantity: number,
   account?: PartnerAccount | null,
 ): number {
-  if (account?.partner) {
-    return product.basePrice + Math.min(Math.max(account.fixedMarkup, 0), 0.99);
-  }
+  const personalPrice = personalUnitPrice(product, account);
+  if (personalPrice !== null) return personalPrice;
   return publicUnitPrice(product, quantity);
+}
+
+export function personalUnitPrice(
+  product: Product,
+  account?: PartnerAccount | null,
+): number | null {
+  if (!account?.partner) return null;
+  const price = Number(account.productPrices?.[product.id]);
+  return Number.isFinite(price) && price > 0 ? price : null;
 }
 
 export function productVolume(product: Product): number {
