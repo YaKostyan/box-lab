@@ -10,6 +10,7 @@ import {
   productVolume,
   products as seedProducts,
   publicUnitPrice,
+  supportTopics,
   unitPrice,
   WHOLESALE_FROM,
   type Dimensions,
@@ -200,6 +201,8 @@ let adminOrderDateEnd = '';
 let adminCalendarCursor = '';
 let adminNotice = '';
 const expandedClientPriceIds = new Set<string>();
+let activeSupportTopicId = '';
+let supportResponseTimer: number | undefined;
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('Root element #app was not found.');
@@ -557,6 +560,71 @@ function productPicker(id: string, large = false): string {
         ${productPickerOptions()}
       </div>
     </div>
+  `;
+}
+
+function supportWidgetMarkup(): string {
+  return `
+    <section class="support-widget" id="support-widget" aria-label="Швидка підтримка">
+      <div class="support-panel" id="support-panel" role="dialog" aria-modal="false" aria-labelledby="support-title" hidden>
+        <header class="support-panel__head">
+          <div class="support-agent" aria-hidden="true">
+            <span class="support-agent__mark"><img src="./toffipacks-logo.webp" alt="" /></span>
+            <i></i>
+          </div>
+          <div>
+            <strong id="support-title">Помічник ToffiPacks</strong>
+            <span><i aria-hidden="true"></i> Відповідає одразу</span>
+          </div>
+          <button class="support-panel__close" type="button" data-support-close aria-label="Закрити підтримку">×</button>
+        </header>
+
+        <div class="support-panel__body">
+          <div class="support-conversation" id="support-conversation" aria-live="polite">
+            <div class="support-message support-message--bot">
+              <span>Вітаю! Допоможу швидко знайти відповідь. Оберіть потрібне питання нижче.</span>
+            </div>
+          </div>
+
+          <div class="support-questions" aria-label="Готові питання">
+            <p>Що вас цікавить?</p>
+            <div>
+              ${supportTopics
+                .map(
+                  (topic, index) => `
+                    <button type="button" data-support-topic="${escapeHtml(topic.id)}" aria-pressed="false">
+                      <span>${String(index + 1).padStart(2, '0')}</span>
+                      <strong>${escapeHtml(topic.question)}</strong>
+                      <i aria-hidden="true">→</i>
+                    </button>
+                  `,
+                )
+                .join('')}
+            </div>
+          </div>
+        </div>
+
+        <footer class="support-panel__foot">
+          <span>Готові відповіді без очікування</span>
+          <a href="#request" data-support-action>Залишити заявку <i aria-hidden="true">→</i></a>
+        </footer>
+      </div>
+
+      <button
+        class="support-trigger"
+        id="support-trigger"
+        type="button"
+        aria-expanded="false"
+        aria-controls="support-panel"
+        aria-label="Відкрити швидку підтримку"
+      >
+        <span class="support-trigger__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M6.5 17.5 3 20v-5.2A8 8 0 0 1 2 11c0-4.4 4.5-8 10-8s10 3.6 10 8-4.5 8-10 8c-2 0-3.9-.5-5.5-1.5Z"/><path d="M8 11h.01M12 11h.01M16 11h.01"/></svg>
+        </span>
+        <span class="support-trigger__copy"><strong>Допомога</strong><small>Швидкі відповіді</small></span>
+        <i class="support-trigger__status" aria-hidden="true"></i>
+      </button>
+    </section>
   `;
 }
 
@@ -1015,6 +1083,8 @@ function storefrontTemplate(): string {
       </div>
     </footer>
 
+    ${supportWidgetMarkup()}
+
     <section class="admin-page" id="admin-page" hidden aria-labelledby="admin-title">
       <header class="admin-header">
         <a class="brand" href="#top">
@@ -1054,6 +1124,63 @@ function storefrontTemplate(): string {
 }
 
 app.innerHTML = storefrontTemplate();
+
+function openSupportPanel(): void {
+  const panel = document.querySelector<HTMLElement>('#support-panel');
+  const trigger = document.querySelector<HTMLButtonElement>('#support-trigger');
+  if (!panel || !trigger || !panel.hidden) return;
+  panel.hidden = false;
+  trigger.setAttribute('aria-expanded', 'true');
+  trigger.setAttribute('aria-label', 'Закрити швидку підтримку');
+  window.requestAnimationFrame(() => {
+    panel.classList.add('is-open');
+    panel.querySelector<HTMLButtonElement>('[data-support-topic]')?.focus({ preventScroll: true });
+  });
+}
+
+function closeSupportPanel(restoreFocus = true): void {
+  const panel = document.querySelector<HTMLElement>('#support-panel');
+  const trigger = document.querySelector<HTMLButtonElement>('#support-trigger');
+  if (!panel || !trigger || panel.hidden) return;
+  panel.classList.remove('is-open');
+  trigger.setAttribute('aria-expanded', 'false');
+  trigger.setAttribute('aria-label', 'Відкрити швидку підтримку');
+  window.setTimeout(() => {
+    if (!panel.classList.contains('is-open')) panel.hidden = true;
+  }, 240);
+  if (restoreFocus) trigger.focus({ preventScroll: true });
+}
+
+function answerSupportQuestion(topicId: string): void {
+  const topic = supportTopics.find((item) => item.id === topicId);
+  const conversation = document.querySelector<HTMLElement>('#support-conversation');
+  if (!topic || !conversation) return;
+  activeSupportTopicId = topic.id;
+  window.clearTimeout(supportResponseTimer);
+  document.querySelectorAll<HTMLButtonElement>('[data-support-topic]').forEach((button) => {
+    const active = button.dataset.supportTopic === topic.id;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  conversation.innerHTML = `
+    <div class="support-message support-message--user"><span>${escapeHtml(topic.question)}</span></div>
+    <div class="support-message support-message--bot support-message--typing" aria-label="Помічник готує відповідь">
+      <i></i><i></i><i></i>
+    </div>
+  `;
+  conversation.scrollTo({ top: conversation.scrollHeight, behavior: 'smooth' });
+  supportResponseTimer = window.setTimeout(() => {
+    if (activeSupportTopicId !== topic.id) return;
+    conversation.innerHTML = `
+      <div class="support-message support-message--user"><span>${escapeHtml(topic.question)}</span></div>
+      <div class="support-message support-message--bot support-message--answer">
+        <span>${escapeHtml(topic.answer)}</span>
+        <a href="${escapeHtml(topic.actionHref)}" data-support-action>${escapeHtml(topic.actionLabel)} <i aria-hidden="true">→</i></a>
+      </div>
+    `;
+    conversation.scrollTo({ top: conversation.scrollHeight, behavior: 'smooth' });
+  }, 460);
+}
 
 const productGrid = document.querySelector<HTMLDivElement>('#product-grid');
 const catalogCount = document.querySelector<HTMLParagraphElement>('#catalog-count');
@@ -3103,6 +3230,7 @@ function syncRoute(): void {
   const storefront = document.querySelector<HTMLElement>('#main');
   const header = document.querySelector<HTMLElement>('.site-header');
   const footer = document.querySelector<HTMLElement>('.site-footer');
+  const supportWidget = document.querySelector<HTMLElement>('#support-widget');
   const strip = document.querySelector<HTMLElement>('.demo-strip');
   const showAdmin = ['#admin', '#admin-orders', '#admin-clients', '#admin-products'].includes(window.location.hash);
   const showAccount = window.location.hash === '#account';
@@ -3111,10 +3239,12 @@ function syncRoute(): void {
   if (storefront) storefront.hidden = showAdmin || showAccount;
   if (header) header.hidden = showAdmin || showAccount;
   if (footer) footer.hidden = showAdmin || showAccount;
+  if (supportWidget) supportWidget.hidden = showAdmin;
   if (strip) strip.hidden = showAdmin || showAccount;
   document.body.classList.toggle('is-admin', showAdmin);
   document.body.classList.toggle('is-account', showAccount);
   if (showAdmin) {
+    closeSupportPanel(false);
     renderAdmin();
     if (backendEnabled && hasApiSession()) {
       void refreshBackendSession().then(() => renderAdmin()).catch((error) => {
@@ -3161,6 +3291,16 @@ document.querySelector<HTMLButtonElement>('#menu-button')?.addEventListener('cli
   const open = button.getAttribute('aria-expanded') !== 'true';
   button.setAttribute('aria-expanded', String(open));
   nav?.classList.toggle('is-open', open);
+});
+
+document.querySelector<HTMLButtonElement>('#support-trigger')?.addEventListener('click', () => {
+  const panel = document.querySelector<HTMLElement>('#support-panel');
+  if (panel?.hidden) openSupportPanel();
+  else closeSupportPanel();
+});
+
+document.querySelector<HTMLButtonElement>('[data-support-close]')?.addEventListener('click', () => {
+  closeSupportPanel();
 });
 
 document.querySelectorAll<HTMLAnchorElement>('.site-nav a').forEach((link) => {
@@ -3327,6 +3467,17 @@ document.querySelector<HTMLFormElement>('#request-form')?.addEventListener('subm
 
 document.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
+
+  const supportTopic = target.closest<HTMLButtonElement>('[data-support-topic]');
+  if (supportTopic?.dataset.supportTopic) {
+    answerSupportQuestion(supportTopic.dataset.supportTopic);
+    return;
+  }
+
+  if (target.closest('[data-support-action]')) {
+    closeSupportPanel(false);
+    return;
+  }
 
   const productPickerOption = target.closest<HTMLButtonElement>('[data-product-picker-value]');
   if (productPickerOption?.dataset.productPickerValue) {
@@ -3766,6 +3917,27 @@ document.addEventListener('click', (event) => {
 
 document.addEventListener('keydown', (event) => {
   const target = event.target as HTMLElement;
+
+  const supportPanel = document.querySelector<HTMLElement>('#support-panel');
+  if (event.key === 'Escape' && supportPanel && !supportPanel.hidden) {
+    event.preventDefault();
+    closeSupportPanel();
+    return;
+  }
+
+  const supportTopic = target.closest<HTMLButtonElement>('[data-support-topic]');
+  if (supportTopic && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+    event.preventDefault();
+    const topics = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-support-topic]'));
+    const current = topics.indexOf(supportTopic);
+    let next = current;
+    if (event.key === 'ArrowDown') next = (current + 1) % topics.length;
+    if (event.key === 'ArrowUp') next = (current - 1 + topics.length) % topics.length;
+    if (event.key === 'Home') next = 0;
+    if (event.key === 'End') next = topics.length - 1;
+    topics[next]?.focus();
+    return;
+  }
 
   const productPickerTrigger = target.closest<HTMLButtonElement>('[data-product-picker-trigger]');
   if (productPickerTrigger) {

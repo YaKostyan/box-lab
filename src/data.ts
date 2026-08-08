@@ -160,6 +160,65 @@ export const faqItems = [
   },
 ];
 
+export interface SupportTopic {
+  id: string;
+  question: string;
+  answer: string;
+  actionLabel: string;
+  actionHref: string;
+}
+
+export const supportTopics: SupportTopic[] = [
+  {
+    id: 'find-size',
+    question: 'Як підібрати розмір?',
+    answer:
+      'Введіть довжину, ширину та висоту предмета. Сайт порівняє всі три сторони й покаже найкомпактніші коробки, у які він поміститься.',
+    actionLabel: 'Підібрати коробку',
+    actionHref: '#fit',
+  },
+  {
+    id: 'calculate-price',
+    question: 'Як дізнатися ціну?',
+    answer:
+      'Оберіть коробку та вкажіть кількість від 1 до 50 000 штук. Калькулятор одразу покаже ціну за одиницю та за весь тираж.',
+    actionLabel: 'Розрахувати ціну',
+    actionHref: '#calculator',
+  },
+  {
+    id: 'delivery',
+    question: 'Як працює доставка?',
+    answer:
+      'Доставляємо по Києву та Київській області. Формат, адресу й вартість менеджер погоджує під час підтвердження заявки.',
+    actionLabel: 'Умови доставки',
+    actionHref: '#delivery',
+  },
+  {
+    id: 'lead-time',
+    question: 'Які строки виготовлення?',
+    answer:
+      'Строк залежить від розміру, тиражу та завантаження виробництва. Точну дату менеджер назве до запуску замовлення.',
+    actionLabel: 'Залишити заявку',
+    actionHref: '#request',
+  },
+  {
+    id: 'personal-price',
+    question: 'Де побачити мої ціни?',
+    answer:
+      'Увійдіть до кабінету за номером телефону. Якщо менеджер призначив персональні ціни, вони автоматично з’являться в кабінеті, каталозі, калькуляторі та кошику.',
+    actionLabel: 'Відкрити кабінет',
+    actionHref: '#account',
+  },
+  {
+    id: 'custom-size',
+    question: 'Немає потрібного розміру?',
+    answer:
+      'Опишіть потрібні габарити, кількість та особливості у коментарі до заявки. Менеджер уточнить деталі й підготує окремий розрахунок.',
+    actionLabel: 'Описати запит',
+    actionHref: '#request',
+  },
+];
+
 export function formatMoney(value: number): string {
   return new Intl.NumberFormat('uk-UA', {
     style: 'currency',
