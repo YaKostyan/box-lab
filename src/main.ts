@@ -563,6 +563,27 @@ function productPicker(id: string, large = false): string {
   `;
 }
 
+function supportWelcomeMarkup(): string {
+  return `
+    <div class="support-welcome">
+      <div class="support-welcome__visual" aria-hidden="true">
+        <span class="support-welcome__orbit"></span>
+        <svg viewBox="0 0 100 82">
+          <path class="support-package__top" d="m18 31 26-16h38L56 31H18Z" />
+          <path class="support-package__front" d="M18 31h38v32H18V31Z" />
+          <path class="support-package__side" d="m56 31 26-16v32L56 63V31Z" />
+          <path class="support-package__fold" d="m18 31 19 10 19-10M44 15l19 10" />
+        </svg>
+      </div>
+      <div class="support-welcome__copy">
+        <span>Швидка підтримка</span>
+        <strong>З чим допомогти?</strong>
+        <p>Оберіть тему — відповідь з’явиться одразу.</p>
+      </div>
+    </div>
+  `;
+}
+
 function supportWidgetMarkup(): string {
   return `
     <section class="support-widget" id="support-widget" aria-label="Швидка підтримка">
@@ -585,9 +606,7 @@ function supportWidgetMarkup(): string {
 
         <div class="support-panel__body">
           <div class="support-conversation" id="support-conversation" aria-live="polite">
-            <div class="support-message support-message--bot">
-              <span>Вітаю! Допоможу швидко знайти відповідь. Оберіть потрібне питання нижче.</span>
-            </div>
+            ${supportWelcomeMarkup()}
           </div>
 
           <div class="support-questions" aria-label="Готові питання">
@@ -1158,32 +1177,54 @@ function closeSupportPanel(restoreFocus = true): void {
 function answerSupportQuestion(topicId: string): void {
   const topic = supportTopics.find((item) => item.id === topicId);
   const conversation = document.querySelector<HTMLElement>('#support-conversation');
-  if (!topic || !conversation) return;
+  const panel = document.querySelector<HTMLElement>('#support-panel');
+  if (!topic || !conversation || !panel) return;
   activeSupportTopicId = topic.id;
   window.clearTimeout(supportResponseTimer);
+  panel.classList.add('has-answer', 'is-thinking');
   document.querySelectorAll<HTMLButtonElement>('[data-support-topic]').forEach((button) => {
     const active = button.dataset.supportTopic === topic.id;
     button.classList.toggle('is-active', active);
     button.setAttribute('aria-pressed', String(active));
   });
   conversation.innerHTML = `
-    <div class="support-message support-message--user"><span>${escapeHtml(topic.question)}</span></div>
-    <div class="support-message support-message--bot support-message--typing" aria-label="Помічник готує відповідь">
-      <i></i><i></i><i></i>
+    <div class="support-answer-stage">
+      <div class="support-answer-question"><span>${escapeHtml(topic.question)}</span></div>
+      <div class="support-message support-message--bot support-message--typing" aria-label="Помічник готує відповідь">
+        <i></i><i></i><i></i>
+      </div>
     </div>
   `;
-  conversation.scrollTo({ top: conversation.scrollHeight, behavior: 'smooth' });
   supportResponseTimer = window.setTimeout(() => {
     if (activeSupportTopicId !== topic.id) return;
+    panel.classList.remove('is-thinking');
     conversation.innerHTML = `
-      <div class="support-message support-message--user"><span>${escapeHtml(topic.question)}</span></div>
-      <div class="support-message support-message--bot support-message--answer">
-        <span>${escapeHtml(topic.answer)}</span>
-        <a href="${escapeHtml(topic.actionHref)}" data-support-action>${escapeHtml(topic.actionLabel)} <i aria-hidden="true">→</i></a>
+      <div class="support-answer-stage">
+        <div class="support-answer-question"><span>${escapeHtml(topic.question)}</span></div>
+        <div class="support-answer-card">
+          <span class="support-answer-card__label"><i aria-hidden="true"></i> Відповідь помічника</span>
+          <p>${escapeHtml(topic.answer)}</p>
+          <a href="${escapeHtml(topic.actionHref)}" data-support-action>${escapeHtml(topic.actionLabel)} <i aria-hidden="true">→</i></a>
+        </div>
+        <button class="support-answer-back" type="button" data-support-back><span aria-hidden="true">←</span> Обрати інше питання</button>
       </div>
     `;
-    conversation.scrollTo({ top: conversation.scrollHeight, behavior: 'smooth' });
   }, 460);
+}
+
+function resetSupportConversation(): void {
+  const panel = document.querySelector<HTMLElement>('#support-panel');
+  const conversation = document.querySelector<HTMLElement>('#support-conversation');
+  if (!panel || !conversation) return;
+  window.clearTimeout(supportResponseTimer);
+  activeSupportTopicId = '';
+  panel.classList.remove('has-answer', 'is-thinking');
+  conversation.innerHTML = supportWelcomeMarkup();
+  document.querySelectorAll<HTMLButtonElement>('[data-support-topic]').forEach((button) => {
+    button.classList.remove('is-active');
+    button.setAttribute('aria-pressed', 'false');
+  });
+  window.setTimeout(() => document.querySelector<HTMLButtonElement>('[data-support-topic]')?.focus({ preventScroll: true }), 80);
 }
 
 const productGrid = document.querySelector<HTMLDivElement>('#product-grid');
@@ -3475,6 +3516,11 @@ document.addEventListener('click', (event) => {
   const supportTopic = target.closest<HTMLButtonElement>('[data-support-topic]');
   if (supportTopic?.dataset.supportTopic) {
     answerSupportQuestion(supportTopic.dataset.supportTopic);
+    return;
+  }
+
+  if (target.closest('[data-support-back]')) {
+    resetSupportConversation();
     return;
   }
 
