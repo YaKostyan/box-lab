@@ -6428,18 +6428,17 @@ svg {
   box-shadow: inset 0 0 0 8px rgba(198, 154, 88, 0.08);
 }
 
-.support-welcome__visual::after {
+.support-welcome__orbit::after {
   position: absolute;
-  top: 8px;
-  right: 16px;
+  top: -5px;
+  left: 50%;
   width: 9px;
   height: 9px;
   content: '';
   background: var(--gold);
   border: 2px solid #f4f1e8;
   border-radius: 50%;
-  animation: supportOrbitDot 4.8s linear infinite;
-  transform-origin: -39px 39px;
+  transform: translateX(-50%);
 }
 
 .support-welcome__orbit {
@@ -6932,12 +6931,6 @@ svg {
 
   50% {
     transform: perspective(160px) rotateX(-9deg);
-  }
-}
-
-@keyframes supportOrbitDot {
-  to {
-    transform: rotate(360deg);
   }
 }
 
@@ -8776,12 +8769,6 @@ svg {
 
   .support-welcome__visual svg {
     width: 62px;
-  }
-
-  .support-welcome__visual::after {
-    top: 5px;
-    right: 11px;
-    transform-origin: -28px 28px;
   }
 
   .support-welcome__copy strong {
