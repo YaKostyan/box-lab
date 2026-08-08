@@ -6332,11 +6332,6 @@ svg {
   stroke-width: 1.55;
 }
 
-.support-agent__mark circle {
-  fill: currentColor;
-  stroke: none;
-}
-
 .support-panel__head > div:nth-child(2) {
   min-width: 0;
   display: grid;
@@ -6473,39 +6468,6 @@ svg {
   transform-box: fill-box;
   transform-origin: 50% 100%;
   animation: supportPackageFold 3.2s ease-in-out infinite;
-}
-
-.support-package__toffik {
-  transform-box: fill-box;
-  transform-origin: 50% 100%;
-  animation: supportToffikPeek 3.2s ease-in-out infinite;
-}
-
-.support-toffik__ear {
-  fill: #7f5134;
-  stroke: var(--brown-deep);
-}
-
-.support-toffik__head {
-  fill: #c99452;
-  stroke: var(--brown-deep);
-}
-
-.support-toffik__muzzle {
-  fill: #efdfc1;
-  stroke: var(--brown-deep);
-}
-
-.support-toffik__fur {
-  fill: none;
-  stroke: #71462b;
-  stroke-width: 1.2;
-}
-
-.support-package__toffik circle,
-.support-toffik__nose {
-  fill: var(--brown-deep);
-  stroke: none;
 }
 
 .support-package__front {
@@ -6969,21 +6931,6 @@ svg {
 
   50% {
     transform: perspective(160px) rotateX(-9deg);
-  }
-}
-
-@keyframes supportToffikPeek {
-  0%,
-  100% {
-    transform: translateY(1px) rotate(0deg);
-  }
-
-  48% {
-    transform: translateY(-2px) rotate(-1.5deg);
-  }
-
-  58% {
-    transform: translateY(-2px) rotate(1.5deg);
   }
 }
 

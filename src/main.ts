@@ -570,15 +570,6 @@ function supportWelcomeMarkup(): string {
         <span class="support-welcome__orbit"></span>
         <svg viewBox="0 0 100 82">
           <path class="support-package__top" d="m18 31 26-16h38L56 31H18Z" />
-          <g class="support-package__toffik">
-            <path class="support-toffik__ear" d="M34 18 29 0l16 11M66 18 71 0 55 11" />
-            <path class="support-toffik__head" d="M31 14C34 2 66 2 69 14l-3 20c-8 9-24 9-32 0l-3-20Z" />
-            <path class="support-toffik__muzzle" d="M40 21c5-5 15-5 20 0l-3 11c-4 5-10 5-14 0l-3-11Z" />
-            <path class="support-toffik__fur" d="m41 10 9-7 9 7M37 15l8-6M63 15l-8-6" />
-            <circle cx="41.5" cy="18" r="1.7" />
-            <circle cx="58.5" cy="18" r="1.7" />
-            <path class="support-toffik__nose" d="M46.5 25h7L50 29l-3.5-4Z" />
-          </g>
           <path class="support-package__front" d="M18 31h38v32H18V31Z" />
           <path class="support-package__side" d="m56 31 26-16v32L56 63V31Z" />
           <path class="support-package__fold" d="m18 31 19 10 19-10M44 15l19 10" />
@@ -587,7 +578,7 @@ function supportWelcomeMarkup(): string {
       <div class="support-welcome__copy">
         <span>Швидка підтримка</span>
         <strong>З чим допомогти?</strong>
-        <p>Оберіть тему — Тофік одразу знайде відповідь.</p>
+        <p>Оберіть тему — відповідь з’явиться одразу.</p>
       </div>
     </div>
   `;
@@ -601,18 +592,14 @@ function supportWidgetMarkup(): string {
           <div class="support-agent" aria-hidden="true">
             <span class="support-agent__mark">
               <svg viewBox="0 0 32 32">
-                <path d="m9 12-2-8 7 5M23 12l2-8-7 5" />
-                <path d="M9 11c1-6 13-6 14 0l-1 9c-3 5-9 5-12 0l-1-9Z" />
-                <path d="M12 16c2-2 6-2 8 0l-1 5c-2 2-4 2-6 0l-1-5Z" />
-                <path d="m13 9 3-3 3 3M12 11l3-2M20 11l-3-2" />
-                <circle cx="13" cy="14" r=".8" /><circle cx="19" cy="14" r=".8" />
-                <path d="M14.5 17.5h3L16 19l-1.5-1.5Z" />
+                <path d="m5.5 10.5 10.5-6 10.5 6v11L16 27.5l-10.5-6v-11Z" />
+                <path d="m5.5 10.5 10.5 6 10.5-6M16 16.5v11M10.8 7.5l10.4 6" />
               </svg>
             </span>
           </div>
           <div>
-            <strong id="support-title">Тофік — помічник</strong>
-            <span><i aria-hidden="true"></i> Підкаже одразу</span>
+            <strong id="support-title">Помічник ToffiPacks</strong>
+            <span><i aria-hidden="true"></i> Відповідає одразу</span>
           </div>
           <button class="support-panel__close" type="button" data-support-close aria-label="Закрити підтримку">×</button>
         </header>
@@ -641,7 +628,7 @@ function supportWidgetMarkup(): string {
         </div>
 
         <footer class="support-panel__foot">
-          <span>Підказки від Тофіка</span>
+          <span>Готові відповіді без очікування</span>
           <a href="#request" data-support-action>Залишити заявку <i aria-hidden="true">→</i></a>
         </footer>
       </div>
@@ -652,12 +639,12 @@ function supportWidgetMarkup(): string {
         type="button"
         aria-expanded="false"
         aria-controls="support-panel"
-        aria-label="Відкрити помічника Тофіка"
+        aria-label="Відкрити швидку підтримку"
       >
         <span class="support-trigger__icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><ellipse cx="12" cy="15.5" rx="5" ry="4"/><circle cx="6.5" cy="10" r="2"/><circle cx="10.5" cy="7" r="2"/><circle cx="15" cy="7.5" r="2"/><circle cx="18" cy="11" r="2"/></svg>
+          <svg viewBox="0 0 24 24"><path d="M6.5 17.5 3 20v-5.2A8 8 0 0 1 2 11c0-4.4 4.5-8 10-8s10 3.6 10 8-4.5 8-10 8c-2 0-3.9-.5-5.5-1.5Z"/><path d="M8 11h.01M12 11h.01M16 11h.01"/></svg>
         </span>
-        <span class="support-trigger__copy"><strong>Тофік допоможе</strong><small>Швидкі відповіді</small></span>
+        <span class="support-trigger__copy"><strong>Допомога</strong><small>Швидкі відповіді</small></span>
         <i class="support-trigger__status" aria-hidden="true"></i>
       </button>
     </section>
@@ -1167,7 +1154,7 @@ function openSupportPanel(): void {
   if (!panel || !trigger || !panel.hidden) return;
   panel.hidden = false;
   trigger.setAttribute('aria-expanded', 'true');
-  trigger.setAttribute('aria-label', 'Закрити помічника Тофіка');
+  trigger.setAttribute('aria-label', 'Закрити швидку підтримку');
   window.requestAnimationFrame(() => {
     panel.classList.add('is-open');
     panel.querySelector<HTMLButtonElement>('[data-support-topic]')?.focus({ preventScroll: true });
@@ -1180,7 +1167,7 @@ function closeSupportPanel(restoreFocus = true): void {
   if (!panel || !trigger || panel.hidden) return;
   panel.classList.remove('is-open');
   trigger.setAttribute('aria-expanded', 'false');
-  trigger.setAttribute('aria-label', 'Відкрити помічника Тофіка');
+  trigger.setAttribute('aria-label', 'Відкрити швидку підтримку');
   window.setTimeout(() => {
     if (!panel.classList.contains('is-open')) panel.hidden = true;
   }, 240);
@@ -1203,7 +1190,7 @@ function answerSupportQuestion(topicId: string): void {
   conversation.innerHTML = `
     <div class="support-answer-stage">
       <div class="support-answer-question"><span>${escapeHtml(topic.question)}</span></div>
-      <div class="support-message support-message--bot support-message--typing" aria-label="Тофік готує відповідь">
+      <div class="support-message support-message--bot support-message--typing" aria-label="Помічник готує відповідь">
         <i></i><i></i><i></i>
       </div>
     </div>
@@ -1215,7 +1202,7 @@ function answerSupportQuestion(topicId: string): void {
       <div class="support-answer-stage">
         <div class="support-answer-question"><span>${escapeHtml(topic.question)}</span></div>
         <div class="support-answer-card">
-          <span class="support-answer-card__label"><i aria-hidden="true"></i> Тофік підказує</span>
+          <span class="support-answer-card__label"><i aria-hidden="true"></i> Відповідь помічника</span>
           <p>${escapeHtml(topic.answer)}</p>
           <a href="${escapeHtml(topic.actionHref)}" data-support-action>${escapeHtml(topic.actionLabel)} <i aria-hidden="true">→</i></a>
         </div>
